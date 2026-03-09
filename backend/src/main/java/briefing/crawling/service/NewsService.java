@@ -1,0 +1,235 @@
+package briefing.crawling.service;
+
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.mybatis.spring.SqlSessionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+import com.google.genai.Client;
+import com.google.genai.errors.ApiException;
+import com.google.genai.types.Candidate;
+import com.google.genai.types.Content;
+import com.google.genai.types.GenerateContentConfig;
+import com.google.genai.types.GenerateContentResponse;
+import com.google.genai.types.Part;
+
+import briefing.crawling.dto.response.GeminiResponse;
+import briefing.crawling.dto.news.News;
+import briefing.crawling.dto.news.Summary;
+import briefing.crawling.dto.request.SummaryRequest;
+import jakarta.annotation.PostConstruct;
+
+@Service
+public class NewsService {
+    private static final Logger logger = LoggerFactory.getLogger(NewsService.class);
+
+    @Value("${rss.url}")
+    private String RSS_URL;
+    @Value("${ai.key}")
+    private String api_key;
+    @Value("${ai.prompt}")
+    private String prompt;
+
+    private Client httpClient;
+    @PostConstruct
+    public void init() {
+        this.httpClient = Client.builder().apiKey(api_key).build();
+    }
+
+    private final SqlSessionTemplate sqlSession;
+
+    public NewsService(SqlSessionTemplate sqlSession) {
+        this.sqlSession = sqlSession;
+    }
+
+    public List<News> getNewsList(String keyword) {
+        return sqlSession.selectList("newsMapper.getNewsList", keyword);
+    }
+
+    public LocalDateTime getLatestDate() {
+        return sqlSession.selectOne("newsMapper.getLastDatetime");
+    }
+
+    @Scheduled(cron = "0 0 9-21/3 * * *")
+    @Transactional
+    public void collect() {
+        try {
+            HttpURLConnection connection = (HttpURLConnection)new URL(RSS_URL).openConnection();
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+
+            InputStream inputStream = connection.getInputStream();
+
+            // XML 파싱
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            org.w3c.dom.Document xmlDoc = builder.parse(inputStream);
+
+            NodeList items = xmlDoc.getElementsByTagName("item");
+            List<News> newsList = new ArrayList<>();
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern(
+                "EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH
+            );
+
+            int limit = Math.min(items.getLength(), 30); // 최대 30건
+            for (int i = 0; i < limit; i++) {
+                Element item = (Element)items.item(i);
+
+                String title = item.getElementsByTagName("title").item(0).getTextContent().trim();
+                String url = item.getElementsByTagName("link").item(0).getTextContent().trim();
+                String pubDate = item.getElementsByTagName("pubDate").item(0).getTextContent().trim();
+                String media = item.getElementsByTagName("source").item(0) != null
+                    ? item.getElementsByTagName("source").item(0).getTextContent().trim()
+                    : "";
+
+                News news = new News();
+                news.setTitle(title);
+                news.setUrl(url);
+                news.setWriteDateTime(ZonedDateTime.parse(pubDate, formatter)
+                    .withZoneSameInstant(ZoneId.of("Asia/Seoul"))
+                    .toLocalDateTime());
+                news.setMedia(media);
+                // 중복 데이터 검사
+                int duplicates = sqlSession.selectOne("newsMapper.duplicateNews", url);
+                if (duplicates > 0) {
+                    continue;
+                }
+
+                newsList.add(news);
+            }
+
+            logger.info("[RSS 수집 완료] 총 {}건", newsList.size());
+            sqlSession.insert("newsMapper.insertNews", newsList);
+        } catch (Exception e) {
+            logger.error("[RSS 수집 오류] {}", e.getMessage());
+        }
+    }
+
+    public String getSummary(long id) {
+        int cnt = sqlSession.selectOne("newsMapper.countSum", id);
+        if (cnt == 0) return null;
+        return sqlSession.selectOne("newsMapper.getSummary", id);
+    }
+
+    public String generateSummary(SummaryRequest sq) {
+        long id = sq.getId();
+        String url = sq.getUrl();
+        String title = sq.getTitle();
+
+        StringBuilder apdPrompt = new StringBuilder();
+        apdPrompt.append(prompt).append("\n");
+        apdPrompt.append("기사 제목: ").append(title).append("\n");
+        apdPrompt.append("링크: ").append(url).append("\n");
+
+        GeminiResponse result = callGeminiWithRetry(apdPrompt);
+
+        if (!result.isSuccess()) {
+            logger.error("[Gemini 요약 실패] id={} status={} message={}", id, result.getStatus(), result.getErrorMessage());
+            return null;
+        }
+
+        Summary summary = new Summary();
+        summary.setNewsId(id);
+        summary.setSummary(result.getText());
+        sqlSession.insert("newsMapper.insertSummary", summary);
+
+        return result.getText();
+    }
+
+    private GeminiResponse callGeminiWithRetry(StringBuilder finPrompt) {
+        GenerateContentConfig config = GenerateContentConfig.builder()
+            .temperature(0.1F)
+            .maxOutputTokens(2048)
+            .topK(40F)
+            .topP(0.8F)
+            .build();
+
+        GeminiResponse lastFailure = GeminiResponse.failure(GeminiResponse.Status.RETRY_EXHAUSTED, "최대 재시도 횟수 초과");
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                Content content = Content.fromParts(
+                    Part.fromText(finPrompt.toString())
+                );
+
+                GenerateContentResponse response = httpClient.models.generateContent(
+                    "gemini-3-flash-preview",
+                    content,
+                    config
+                );
+
+                if (response.candidates().isEmpty() || response.candidates().get().isEmpty()) {
+                    lastFailure = GeminiResponse.failure(GeminiResponse.Status.NO_CANDIDATES, "응답에 Candidates가 없습니다.");
+                    logger.warn("[Gemini 재시도 {}/3] {}", attempt, lastFailure.getErrorMessage());
+                    if (attempt < 3) Thread.sleep(1000L * attempt);
+                    continue;
+                }
+
+                Candidate candidate = response.candidates().get().getFirst();
+
+                if (candidate.finishReason().isPresent()) {
+                    String finishReason = candidate.finishReason().get().toString();
+                    if ("SAFETY".equals(finishReason)) {
+                        return GeminiResponse.failure(GeminiResponse.Status.SAFETY_BLOCKED, "안전 필터에 의해 차단됨");
+                    } else if ("MAX_TOKENS".equals(finishReason)) {
+                        return GeminiResponse.failure(GeminiResponse.Status.MAX_TOKENS_EXCEEDED, "최대 토큰 수 초과");
+                    } else if (!"STOP".equals(finishReason)) {
+                        lastFailure = GeminiResponse.failure(GeminiResponse.Status.API_ERROR, "모델 생성 상태 비정상: " + finishReason);
+                        logger.warn("[Gemini 재시도 {}/3] {}", attempt, lastFailure.getErrorMessage());
+                        if (attempt < 3) Thread.sleep(1000L * attempt);
+                        continue;
+                    }
+                }
+
+                String text = response.text();
+
+                if (text == null || text.trim().isEmpty()) {
+                    lastFailure = GeminiResponse.failure(GeminiResponse.Status.API_ERROR, "AI 응답이 비어있습니다.");
+                    logger.warn("[Gemini 재시도 {}/3] {}", attempt, lastFailure.getErrorMessage());
+                    if (attempt < 3) Thread.sleep(1000L * attempt);
+                    continue;
+                }
+
+                return GeminiResponse.success(text.trim());
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return GeminiResponse.failure(GeminiResponse.Status.API_ERROR, "재시도 대기 중 인터럽트 발생");
+            } catch (ApiException e) {
+                lastFailure = GeminiResponse.failure(GeminiResponse.Status.API_ERROR, "API 오류: " + e.getMessage());
+                logger.warn("[Gemini 재시도 {}/3] {}", attempt, lastFailure.getErrorMessage());
+                if (attempt < 3) {
+                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            } catch (Exception e) {
+                lastFailure = GeminiResponse.failure(GeminiResponse.Status.API_ERROR, "알 수 없는 오류: " + e.getMessage());
+                logger.warn("[Gemini 재시도 {}/3] {}", attempt, lastFailure.getErrorMessage());
+                if (attempt < 3) {
+                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            }
+        }
+
+        return lastFailure;
+    }
+
+}
