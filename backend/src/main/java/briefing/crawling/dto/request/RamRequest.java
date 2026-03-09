@@ -4,6 +4,8 @@ public class RamRequest {
     private String ramType;
     private String ramSize;
 
+    public RamRequest() {}
+
     public RamRequest(String ramType, String ramSize) {
         this.ramType = ramType;
         this.ramSize = ramSize;
