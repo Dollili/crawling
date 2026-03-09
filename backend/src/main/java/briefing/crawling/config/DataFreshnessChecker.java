@@ -1,6 +1,6 @@
 package briefing.crawling.config;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 
@@ -27,11 +27,11 @@ public class DataFreshnessChecker implements ApplicationListener<ApplicationRead
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
-        LocalDateTime latestDate = newsService.getLatestDate();
-        LocalDateTime today = LocalDateTime.now();
+        OffsetDateTime latestDate = newsService.getLatestDate();
+        OffsetDateTime today = OffsetDateTime.now();
 
-        LocalDateTime latestDate2 = ramsService.getLatestDate();
-        LocalDateTime today2 = LocalDateTime.now();
+        OffsetDateTime latestDate2 = ramsService.getLatestDate();
+        OffsetDateTime today2 = OffsetDateTime.now();
 
         YearMonth latestMonth = YearMonth.from(latestDate2);
         YearMonth currentMonth = YearMonth.from(today2);
