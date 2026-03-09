@@ -1,6 +1,5 @@
 package briefing.crawling.service;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -92,7 +91,7 @@ public class RamsService {
                     rams.setRamType(ddrType);
                     rams.setRamSize(capacity);
                     rams.setCurrentPrice(price);
-                    rams.setRegisterDate(LocalDateTime.now());
+                    rams.setRegisterDate(OffsetDateTime.now());
 
                     ramsList.add(rams);
 

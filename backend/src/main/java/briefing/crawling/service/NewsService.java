@@ -106,7 +106,7 @@ public class NewsService {
                 news.setUrl(url);
                 news.setWriteDateTime(ZonedDateTime.parse(pubDate, formatter)
                     .withZoneSameInstant(ZoneId.of("Asia/Seoul"))
-                    .toLocalDateTime());
+                    .toOffsetDateTime());
                 news.setMedia(media);
 
                 if (newsMapper.duplicateNews(url) > 0) {

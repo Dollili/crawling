@@ -1,13 +1,12 @@
 package briefing.crawling.dto.news;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 public class News {
     private long id;
     private String title;
     private String media;
-    private LocalDateTime writeDateTime;
+    private OffsetDateTime writeDateTime;
     private String url;
     private OffsetDateTime createDateTime;
 
@@ -51,11 +50,11 @@ public class News {
         this.url = url;
     }
 
-    public LocalDateTime getWriteDateTime() {
+    public OffsetDateTime getWriteDateTime() {
         return writeDateTime;
     }
 
-    public void setWriteDateTime(LocalDateTime writeDateTime) {
+    public void setWriteDateTime(OffsetDateTime writeDateTime) {
         this.writeDateTime = writeDateTime;
     }
 }
