@@ -47,13 +47,13 @@
     <select id="countSum" resultType="int">
         SELECT COUNT(*)
         FROM summary
-        WHERE news_id = #{id}::bigint
+        WHERE news_id = #{id}
     </select>
 
     <select id="getSummary" resultType="string">
         SELECT summary
         FROM summary
-        WHERE news_id = #{id}::bigint
+        WHERE news_id = #{id}
     </select>
 
     <select id="getLastDatetime" resultType="java.time.OffsetDateTime">
@@ -65,6 +65,6 @@
         INSERT INTO summary
         (news_id, summary)
         VALUES
-        (#{newsId}::bigint, #{summary})
+        (#{newsId}, #{summary})
     </insert>
 </mapper>
