@@ -9,6 +9,10 @@ public class SummaryRequest {
         return title;
     }
 
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
     public long getId() {
         return id;
     }

@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -37,6 +38,7 @@ import briefing.crawling.dto.news.Summary;
 import briefing.crawling.dto.request.SummaryRequest;
 import briefing.crawling.mapper.NewsMapper;
 import jakarta.annotation.PostConstruct;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class NewsService {
@@ -228,5 +230,78 @@ public class NewsService {
         }
 
         return lastFailure;
+    }
+
+    public void streamSummary(SummaryRequest sq, SseEmitter emitter) {
+        long id = sq.getId();
+
+        // 1. DB에 이미 요약이 존재하는 경우 → 즉시 전송
+        if (newsMapper.countSum(id) > 0) {
+            try {
+                String existing = newsMapper.getSummary(id);
+                emitter.send(SseEmitter.event().data(existing));
+                emitter.send(SseEmitter.event().data("[DONE]"));
+                emitter.complete();
+            } catch (Exception e) {
+                logger.error("[SSE 기존 요약 전송 오류] id={} {}", id, e.getMessage());
+                emitter.completeWithError(e);
+            }
+            return;
+        }
+
+        // 2. DB에 없으면 Gemini 스트리밍 호출 (별도 스레드)
+        CompletableFuture.runAsync(() -> {
+            StringBuilder fullText = new StringBuilder();
+
+            String builtPrompt = prompt + "\n"
+                + "기사 제목: " + sq.getTitle() + "\n"
+                + "링크: " + sq.getUrl() + "\n";
+
+            GenerateContentConfig config = GenerateContentConfig.builder()
+                .temperature(0.1F)
+                .maxOutputTokens(2048)
+                .topK(40F)
+                .topP(0.8F)
+                .build();
+
+            try {
+                Content content = Content.fromParts(Part.fromText(builtPrompt));
+
+                // Gemini 스트리밍 호출
+                httpClient.models.generateContentStream("gemini-3-flash-preview", content, config)
+                    .forEach(chunk -> {
+                        try {
+                            String text = chunk.text();
+                            if (text != null && !text.isEmpty()) {
+                                fullText.append(text);
+                                emitter.send(SseEmitter.event().data(text));
+                            }
+                        } catch (Exception e) {
+                            logger.error("[SSE 청크 전송 오류] id={} {}", id, e.getMessage());
+                            throw new RuntimeException(e);
+                        }
+                    });
+
+                // 스트리밍 완료 후 DB 저장
+                if (!fullText.isEmpty()) {
+                    Summary summary = new Summary();
+                    summary.setNewsId(id);
+                    summary.setSummary(fullText.toString());
+                    newsMapper.insertSummary(summary);
+                }
+
+                emitter.send(SseEmitter.event().data("[DONE]"));
+                emitter.complete();
+
+            } catch (Exception e) {
+                logger.error("[SSE 스트리밍 오류] id={} {}", id, e.getMessage());
+                try {
+                    emitter.send(SseEmitter.event().data("[ERROR]"));
+                    emitter.complete();
+                } catch (Exception ex) {
+                    emitter.completeWithError(ex);
+                }
+            }
+        });
     }
 }
