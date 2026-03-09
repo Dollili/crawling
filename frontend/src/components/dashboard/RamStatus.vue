@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {ref, computed, onMounted, watch} from 'vue'
+import apiClient from '@/api'
 
 type DdrType = 'DDR4' | 'DDR5'
 type Capacity = '8GB' | '16GB' | '32GB' | '64GB'
@@ -34,18 +35,12 @@ async function fetchRams() {
   isLoading.value = true
   hasError.value = false
   try {
-    const res = await fetch('/api/rams', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        ramType: selectedDdr.value,
-        ramSize: selectedCapacity.value,
-      }),
+    const res = await apiClient.post<RamRecord[]>('/api/rams', {
+      ramType: selectedDdr.value,
+      ramSize: selectedCapacity.value,
     })
-    if (!res.ok) throw new Error('API 오류')
-    rawList.value = await res.json()
+    rawList.value = res.data
 
-    // 마지막 수집일 emit — createDateTime 중 가장 최신값
     const dates = rawList.value.map(r => r.createDateTime).filter(Boolean).sort()
     const latest = dates.length > 0 ? dates[dates.length - 1] : null
 
