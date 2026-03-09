@@ -18,7 +18,7 @@ const emit = defineEmits<{ (e: 'lastDate', date: string): void }>()
 const newsList = ref<NewsItem[]>([])
 const expandedId = ref<number | null>(null)
 const summaryMap = ref<Record<number, string | null>>({})
-const summaryLoadingSet = reactive(new Set<number>())
+const summaryLoadingSet = ref(new Set<number>())
 const isLoading = ref(false)
 const errorMsg = ref<string | null>(null)
 
@@ -55,18 +55,44 @@ const fetchSummary = async (item: NewsItem) => {
 }
 
 const generateSummary = async (item: NewsItem) => {
-  summaryLoadingSet.add(item.id)
-  try {
-    const res = await apiClient.post<string>(
-      '/api/news/summary/generate',
-      { id: item.id, url: item.url, title: item.title },
-      { timeout: 60000, silent: true } as SilentConfig,
-    )
-    summaryMap.value = { ...summaryMap.value, [item.id]: res.data || '현재 요약을 제공할 수 없습니다.' }
-  } catch (_) {
-    summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
-  } finally {
-    summaryLoadingSet.delete(item.id)
+  summaryLoadingSet.value = new Set(summaryLoadingSet.value.add(item.id))
+  summaryMap.value = { ...summaryMap.value, [item.id]: '' }
+
+  const params = new URLSearchParams({
+    url: item.url,
+    title: item.title,
+  })
+  const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
+  const eventSource = new EventSource(`${apiBase}/api/news/summary/stream/${item.id}?${params}`)
+
+  eventSource.onmessage = (e) => {
+    const chunk = e.data
+    if (chunk === '[DONE]') {
+      const next = new Set(summaryLoadingSet.value)
+      next.delete(item.id)
+      summaryLoadingSet.value = next
+      eventSource.close()
+      return
+    }
+    if (chunk === '[ERROR]') {
+      summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
+      const next = new Set(summaryLoadingSet.value)
+      next.delete(item.id)
+      summaryLoadingSet.value = next
+      eventSource.close()
+      return
+    }
+    summaryMap.value = { ...summaryMap.value, [item.id]: (summaryMap.value[item.id] ?? '') + chunk }
+  }
+
+  eventSource.onerror = () => {
+    if ((summaryMap.value[item.id] ?? '').length === 0) {
+      summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
+    }
+    const next = new Set(summaryLoadingSet.value)
+    next.delete(item.id)
+    summaryLoadingSet.value = next
+    eventSource.close()
   }
 }
 
@@ -144,15 +170,20 @@ defineExpose({ count: () => newsList.value.length })
                 </svg>
                 AI 요약
               </div>
-              <div v-if="summaryLoadingSet.has(item.id)" class="summary-loading">
+              <!-- 실제 텍스트가 있거나 스트리밍 중일 때만 텍스트 영역 표시 -->
+              <template v-if="(summaryMap[item.id] !== null && summaryMap[item.id] !== undefined && summaryMap[item.id] !== '') || summaryLoadingSet.has(item.id)">
+                <p class="summary-text">
+                  <span v-html="summaryMap[item.id]"></span><span v-if="summaryLoadingSet.has(item.id)" class="streaming-cursor">▌</span>
+                </p>
+              </template>
+              <!-- 텍스트가 없고 로딩 중이면 스피너 -->
+              <div v-else-if="summaryLoadingSet.has(item.id)" class="summary-loading">
                 <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
                 요약 중...
               </div>
-              <template v-else-if="summaryMap[item.id]">
-                <p class="summary-text" v-html="summaryMap[item.id]"></p>
-              </template>
+              <!-- 아무것도 없으면 버튼 표시 -->
               <template v-else>
                 <div class="summary-actions">
                   <button class="generate-btn" @click.stop="generateSummary(item)">
@@ -169,7 +200,7 @@ defineExpose({ count: () => newsList.value.length })
                   </a>
                 </div>
               </template>
-              <a v-if="summaryMap[item.id]" :href="item.url" target="_blank" rel="noopener noreferrer" class="news-link" @click.stop>
+              <a v-if="summaryMap[item.id] && !summaryLoadingSet.has(item.id)" :href="item.url" target="_blank" rel="noopener noreferrer" class="news-link" @click.stop>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
                 </svg>
@@ -423,6 +454,18 @@ defineExpose({ count: () => newsList.value.length })
 .generate-btn:hover {
   background-color: transparent;
   color: #2c3e35;
+}
+
+.streaming-cursor {
+  display: inline;
+  color: #c8a96e;
+  font-weight: bold;
+  animation: blink 0.8s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .expand-enter-active,
