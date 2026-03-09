@@ -461,9 +461,45 @@ const totalChangeRate = computed(() =>
     padding: 0 1.2rem 2rem;
   }
 
+  /* summary-row: flex → 2열 grid로 변경, 용량과 무관하게 항상 동일한 레이아웃 유지 */
   .summary-row {
-    flex-wrap: wrap;
-    gap: 1rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem 1rem;
+    padding: 0.9rem 1rem;
+  }
+
+  /* 각 항목이 그리드 셀 크기에 맞게 고정, 텍스트 넘침 방지 */
+  .summary-item {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .summary-value {
+    font-size: 0.85rem;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  /* 출처 텍스트: absolute → static으로 변경해 그리드 흐름에 포함 */
+  .summary-source {
+    position: static;
+    grid-column: 1 / -1;
+    text-align: right;
+    margin-top: -0.3rem;
+  }
+
+  /* 차트 영역 패딩 확보 */
+  .chart-wrap {
+    padding: 0.8rem 0.2rem 0.6rem;
+  }
+
+  /* SVG 높이를 aspect-ratio로 강제 확보 → 모바일에서 찌그러짐 방지 */
+  .chart-svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 600 / 220;
+    min-height: 160px;
   }
 }
 </style>
