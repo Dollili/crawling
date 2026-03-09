@@ -3,7 +3,7 @@ package briefing.crawling.service;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -66,7 +66,7 @@ public class NewsService {
         return newsMapper.getNewsList(keyword);
     }
 
-    public LocalDateTime getLatestDate() {
+    public OffsetDateTime getLatestDate() {
         return newsMapper.getLastDatetime();
     }
 

@@ -34,7 +34,7 @@
         </foreach>
     </insert>
 
-    <select id="getLastDatetime" resultType="java.time.LocalDateTime">
+    <select id="getLastDatetime" resultType="java.time.OffsetDateTime">
         SELECT MAX(create_date_time)
         FROM ram_month
     </select>

@@ -1,6 +1,6 @@
 package briefing.crawling.mapper;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Mapper;
@@ -15,5 +15,5 @@ public interface RamsMapper {
 
     void insertRams(List<Rams> ramsList);
 
-    LocalDateTime getLastDatetime();
+    OffsetDateTime getLastDatetime();
 }
