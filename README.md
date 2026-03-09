@@ -18,7 +18,7 @@
 ## 🛠️ 기술 스택
 
 ### Backend
-- **Java 25** / **Spring Boot 4.0.3**
+- **Java 21** / **Spring Boot 4.0.3**
 - **MyBatis** — SQL Mapper 기반 DB 접근
 - **Jsoup** — HTML 파싱
 - **Playwright (Java)** — 동적 웹 크롤링 (다나와)
