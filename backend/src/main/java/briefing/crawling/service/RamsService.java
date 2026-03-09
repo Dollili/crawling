@@ -7,7 +7,6 @@ import java.util.List;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 
-import org.mybatis.spring.SqlSessionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -15,12 +14,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import briefing.crawling.dto.rams.Rams;
 import briefing.crawling.dto.request.RamRequest;
+import briefing.crawling.mapper.RamsMapper;
 
 @Service
 public class RamsService {
     private static final Logger logger = LoggerFactory.getLogger(RamsService.class);
 
-    private final SqlSessionTemplate sqlSession;
+    private final RamsMapper ramsMapper;
 
     private static final String URL = "https://prod.danawa.com/list/?cate=112752";
     private static final String MAKER_ID = "searchMakerRep702";
@@ -28,22 +28,22 @@ public class RamsService {
     private static final List<String> DDR_TYPES = List.of("DDR4", "DDR5");
     private static final List<String> CAPACITIES = List.of("8GB", "16GB", "32GB", "64GB");
 
-    public RamsService(SqlSessionTemplate sqlSession) {
-        this.sqlSession = sqlSession;
+    public RamsService(RamsMapper ramsMapper) {
+        this.ramsMapper = ramsMapper;
     }
 
     public List<Rams> getRamsList(RamRequest keyword) {
-        return sqlSession.selectList("ramsMapper.getRamsList", keyword);
+        return ramsMapper.getRamsList(keyword);
     }
 
     public LocalDateTime getLatestDate() {
-        return sqlSession.selectOne("ramsMapper.getLastDatetime");
+        return ramsMapper.getLastDatetime();
     }
 
     @Transactional
     public void insertRams() {
         List<Rams> list = collect();
-        sqlSession.insert("ramsMapper.insertRams", list);
+        ramsMapper.insertRams(list);
     }
 
     public List<Rams> collect() {

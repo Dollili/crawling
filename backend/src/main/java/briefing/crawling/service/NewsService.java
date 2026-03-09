@@ -14,7 +14,6 @@ import java.util.Locale;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
-import org.mybatis.spring.SqlSessionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +35,7 @@ import briefing.crawling.dto.response.GeminiResponse;
 import briefing.crawling.dto.news.News;
 import briefing.crawling.dto.news.Summary;
 import briefing.crawling.dto.request.SummaryRequest;
+import briefing.crawling.mapper.NewsMapper;
 import jakarta.annotation.PostConstruct;
 
 @Service
@@ -50,26 +50,27 @@ public class NewsService {
     private String prompt;
 
     private Client httpClient;
+
     @PostConstruct
     public void init() {
         this.httpClient = Client.builder().apiKey(api_key).build();
     }
 
-    private final SqlSessionTemplate sqlSession;
+    private final NewsMapper newsMapper;
 
-    public NewsService(SqlSessionTemplate sqlSession) {
-        this.sqlSession = sqlSession;
+    public NewsService(NewsMapper newsMapper) {
+        this.newsMapper = newsMapper;
     }
 
     public List<News> getNewsList(String keyword) {
-        return sqlSession.selectList("newsMapper.getNewsList", keyword);
+        return newsMapper.getNewsList(keyword);
     }
 
     public LocalDateTime getLatestDate() {
-        return sqlSession.selectOne("newsMapper.getLastDatetime");
+        return newsMapper.getLastDatetime();
     }
 
-    @Scheduled(cron = "0 0 9-21/3 * * *")
+    @Scheduled(cron = "0 0 9 * * ?")
     @Transactional
     public void collect() {
         try {
@@ -78,7 +79,6 @@ public class NewsService {
 
             InputStream inputStream = connection.getInputStream();
 
-            // XML 파싱
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             DocumentBuilder builder = factory.newDocumentBuilder();
             org.w3c.dom.Document xmlDoc = builder.parse(inputStream);
@@ -90,7 +90,7 @@ public class NewsService {
                 "EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH
             );
 
-            int limit = Math.min(items.getLength(), 30); // 최대 30건
+            int limit = Math.min(items.getLength(), 30);
             for (int i = 0; i < limit; i++) {
                 Element item = (Element)items.item(i);
 
@@ -108,9 +108,8 @@ public class NewsService {
                     .withZoneSameInstant(ZoneId.of("Asia/Seoul"))
                     .toLocalDateTime());
                 news.setMedia(media);
-                // 중복 데이터 검사
-                int duplicates = sqlSession.selectOne("newsMapper.duplicateNews", url);
-                if (duplicates > 0) {
+
+                if (newsMapper.duplicateNews(url) > 0) {
                     continue;
                 }
 
@@ -118,16 +117,17 @@ public class NewsService {
             }
 
             logger.info("[RSS 수집 완료] 총 {}건", newsList.size());
-            sqlSession.insert("newsMapper.insertNews", newsList);
+            if (!newsList.isEmpty()) {
+                newsMapper.insertNews(newsList);
+            }
         } catch (Exception e) {
             logger.error("[RSS 수집 오류] {}", e.getMessage());
         }
     }
 
     public String getSummary(long id) {
-        int cnt = sqlSession.selectOne("newsMapper.countSum", id);
-        if (cnt == 0) return null;
-        return sqlSession.selectOne("newsMapper.getSummary", id);
+        if (newsMapper.countSum(id) == 0) return null;
+        return newsMapper.getSummary(id);
     }
 
     public String generateSummary(SummaryRequest sq) {
@@ -150,7 +150,7 @@ public class NewsService {
         Summary summary = new Summary();
         summary.setNewsId(id);
         summary.setSummary(result.getText());
-        sqlSession.insert("newsMapper.insertSummary", summary);
+        newsMapper.insertSummary(summary);
 
         return result.getText();
     }
@@ -167,9 +167,7 @@ public class NewsService {
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                Content content = Content.fromParts(
-                    Part.fromText(finPrompt.toString())
-                );
+                Content content = Content.fromParts(Part.fromText(finPrompt.toString()));
 
                 GenerateContentResponse response = httpClient.models.generateContent(
                     "gemini-3-flash-preview",
@@ -231,5 +229,4 @@ public class NewsService {
 
         return lastFailure;
     }
-
 }
