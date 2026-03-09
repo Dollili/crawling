@@ -461,12 +461,12 @@ const totalChangeRate = computed(() =>
     padding: 0 1.2rem 2rem;
   }
 
-  /* summary-row: flex → 2열 grid로 변경, 용량과 무관하게 항상 동일한 레이아웃 유지 */
+  /* 3개 항목을 항상 균등 3열로 고정 → 용량과 무관하게 레이아웃 동일 */
   .summary-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.9rem 1rem;
-    padding: 0.9rem 1rem;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.6rem 0.5rem;
+    padding: 0.8rem 0.8rem 1.4rem;
   }
 
   /* 각 항목이 그리드 셀 크기에 맞게 고정, 텍스트 넘침 방지 */
@@ -476,17 +476,20 @@ const totalChangeRate = computed(() =>
   }
 
   .summary-value {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     white-space: normal;
     word-break: break-word;
   }
 
-  /* 출처 텍스트: absolute → static으로 변경해 그리드 흐름에 포함 */
+  .summary-label {
+    font-size: 0.6rem;
+  }
+
+  /* 출처 텍스트: absolute 유지하되 grid 내부에서 겹치지 않도록 위치 조정 */
   .summary-source {
-    position: static;
-    grid-column: 1 / -1;
-    text-align: right;
-    margin-top: -0.3rem;
+    position: absolute;
+    bottom: 0.35rem;
+    right: 0.7rem;
   }
 
   /* 차트 영역 패딩 확보 */
