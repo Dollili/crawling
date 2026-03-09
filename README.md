@@ -40,7 +40,6 @@
 |---|---|---|
 | `POST` | `/api/news` | 키워드로 뉴스 목록 조회 |
 | `GET` | `/api/news/summary/{id}` | 저장된 요약 조회 |
-| `POST` | `/api/news/summary/generate` | Gemini AI 요약 생성 |
 
 ### RAM
 

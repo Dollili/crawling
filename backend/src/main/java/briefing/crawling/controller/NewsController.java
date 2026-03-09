@@ -42,11 +42,11 @@ public class NewsController {
         return ResponseEntity.ok(summary);
     }
 
-    @PostMapping("/summary/generate")
-    public ResponseEntity<String> generateSummary(@RequestBody SummaryRequest sq) {
-        String summary = newsService.generateSummary(sq);
-        return ResponseEntity.ok(summary);
-    }
+    // @PostMapping("/summary/generate")
+    // public ResponseEntity<String> generateSummary(@RequestBody SummaryRequest sq) {
+    //     String summary = newsService.generateSummary(sq);
+    //     return ResponseEntity.ok(summary);
+    // }
 
     @GetMapping(value = "/summary/stream/{id}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> streamSummary(
