@@ -2,12 +2,15 @@ package briefing.crawling.dto.news;
 
 import java.time.OffsetDateTime;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 public class News {
     private long id;
     private String title;
     private String media;
     private OffsetDateTime writeDateTime;
     private String url;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Seoul")
     private OffsetDateTime createDateTime;
 
     public OffsetDateTime getCreateDateTime() {

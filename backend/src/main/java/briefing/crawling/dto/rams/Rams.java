@@ -2,12 +2,15 @@ package briefing.crawling.dto.rams;
 
 import java.time.OffsetDateTime;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 public class Rams {
     private long id;
     private String ramType;
     private String ramSize;
     private int currentPrice;
     private OffsetDateTime registerDate;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Seoul")
     private OffsetDateTime createDateTime;
 
     public OffsetDateTime getCreateDateTime() {
