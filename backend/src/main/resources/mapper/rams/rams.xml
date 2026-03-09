@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="ramsMapper">
+<mapper namespace="briefing.crawling.mapper.RamsMapper">
     <select id="getRamsList" resultType="Rams">
         SELECT ram_size, ram_type, current_price, register_date, create_date_time
         FROM ram_month
