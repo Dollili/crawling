@@ -1,6 +1,7 @@
 package briefing.crawling.service;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,7 +37,7 @@ public class RamsService {
         return ramsMapper.getRamsList(keyword);
     }
 
-    public LocalDateTime getLatestDate() {
+    public OffsetDateTime getLatestDate() {
         return ramsMapper.getLastDatetime();
     }
 

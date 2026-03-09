@@ -1,6 +1,7 @@
 package briefing.crawling.dto.rams;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 public class Rams {
     private long id;
@@ -8,13 +9,13 @@ public class Rams {
     private String ramSize;
     private int currentPrice;
     private LocalDateTime registerDate;
-    private String createDateTime;
+    private OffsetDateTime createDateTime;
 
-    public String getCreateDateTime() {
+    public OffsetDateTime getCreateDateTime() {
         return createDateTime;
     }
 
-    public void setCreateDateTime(String createDateTime) {
+    public void setCreateDateTime(OffsetDateTime createDateTime) {
         this.createDateTime = createDateTime;
     }
 
