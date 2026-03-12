@@ -19,7 +19,7 @@ rss:
   url: 'https://news.google.com/rss/search?q=%EC%9D%80%ED%96%89+when:7d&hl=ko&gl=KR&ceid=KR:ko'
 
 ai:
-  prompt: '아래 링크와 제목의 기사를 확인하고, 다른 설명 없이 바로 <ul>, <li> 태그를 사용한 5줄 요약 HTML 결과만 출력해. (No prose, No intro, No outro)'
+  prompt: '아래 링크와 제목의 기사 본문에 명시된 텍스트 데이터만을 근거로 요약해. 기사에 없는 누적 수치나 외부 통계, 배경지식을 절대 추가하지 말고, 오직 제공된 기사 내용만 충실히 반영해서 다른 설명 없이 바로 <ul>, <li> 태그를 사용한 5줄 요약 HTML 결과만 출력해. (No external info, No inference, No prose, No intro, No outro)'
 
 ---
 # prod
