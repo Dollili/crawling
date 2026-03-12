@@ -258,7 +258,7 @@ public class NewsService {
                 + "링크: " + sq.getUrl() + "\n";
 
             GenerateContentConfig config = GenerateContentConfig.builder()
-                .temperature(0.2F)
+                .temperature(0.1F)
                 .maxOutputTokens(2048)
                 .topK(40F)
                 .topP(0.8F)

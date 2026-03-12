@@ -19,7 +19,16 @@ rss:
   url: 'https://news.google.com/rss/search?q=%EC%9D%80%ED%96%89+when:7d&hl=ko&gl=KR&ceid=KR:ko'
 
 ai:
-  prompt: '아래 링크와 제목의 기사 본문에 명시된 텍스트 데이터만을 근거로 요약해. 기사에 없는 누적 수치나 외부 통계, 배경지식을 절대 추가하지 말고, 오직 제공된 기사 내용만 충실히 반영해서 다른 설명 없이 바로 <ul>, <li> 태그를 사용한 5줄 요약 HTML 결과만 출력해. (No external info, No inference, No prose, No intro, No outro)'
+  prompt: '
+  [SYSTEM: STRICT FACT-CHECK MODE]
+  당신은 오직 제공된 URL의 실시간 본문 텍스트만을 추출하여 요약하는 로봇입니다.  
+  [CRITICAL RULES]
+  1. 당신이 과거에 학습한 모든 사전 지식을 망각하십시오.
+  2. 아래 링크와 해당하는 제목의 기사를 방문하여 현재 화면에 출력된 텍스트 데이터만 사용하십시오.
+  3. 만약 본문에 기준, 기간, 구체적 수치 등이 명시되어 있지 않다면, 절대 임의로 지어내지 마십시오. (예: 3개월 이상, 1,000만원 등의 수치가 본문에 없다면 출력 금지)
+  4. 본문에 없는 내용을 단 하나라도 포함할 경우, 이는 데이터 오염으로 간주되어 실패 처리됩니다.
+  5. 오직 <ul>, <li> 태그를 사용한 5줄 요약 HTML 결과만 출력하십시오. (No intro, No outro)
+  '
 
 ---
 # prod
