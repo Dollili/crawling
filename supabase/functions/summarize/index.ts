@@ -28,7 +28,8 @@ Deno.serve(async (req) => {
     const articleUrl = url.searchParams.get('url') ?? ''
     const title = url.searchParams.get('title') ?? ''
 
-    if (!newsId || !articleUrl) {
+    // isNaN으로 명확하게 체크 (0 오탐 방지)
+    if (isNaN(newsId) || !articleUrl) {
       return new Response('Missing parameters', { status: 400 })
     }
 
