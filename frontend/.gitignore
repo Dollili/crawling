@@ -38,7 +38,8 @@ __screenshots__/
 # Vite
 *.timestamp-*-*.mjs
 
-# Environment variables (production secrets should not be committed)
+# Environment variables
+.env
 .env.production
 .env.local
 .env.*.local

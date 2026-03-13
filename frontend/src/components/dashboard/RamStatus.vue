@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import {ref, computed, onMounted, watch} from 'vue'
-import apiClient from '@/api'
+import { ref, computed, onMounted, watch } from 'vue'
+import { supabase } from '@/lib/supabase'
 
 type DdrType = 'DDR4' | 'DDR5'
 type Capacity = '8GB' | '16GB' | '32GB' | '64GB'
 
 interface RamRecord {
-  ramType: string
-  ramSize: string
-  currentPrice: number
-  registerDate: string
-  createDateTime: string
+  ram_type: string
+  ram_size: string
+  current_price: number
+  register_date: string
+  create_date_time: string
 }
 
 interface PricePoint {
@@ -30,26 +30,25 @@ const rawList = ref<RamRecord[]>([])
 const isLoading = ref(false)
 const hasError = ref(false)
 
-// API 호출
 async function fetchRams() {
   isLoading.value = true
   hasError.value = false
   try {
-    const res = await apiClient.post<RamRecord[]>('/api/rams', {
-      ramType: selectedDdr.value,
-      ramSize: selectedCapacity.value,
-    })
-    rawList.value = res.data
+    const { data, error } = await supabase
+      .from('rams')
+      .select('*')
+      .eq('ram_type', selectedDdr.value)
+      .eq('ram_size', selectedCapacity.value)
+      .order('register_date', { ascending: true })
 
-    const dates = rawList.value.map(r => r.createDateTime).filter(Boolean).sort()
+    if (error) throw error
+
+    rawList.value = data ?? []
+
+    const dates = rawList.value.map(r => r.create_date_time).filter(Boolean).sort()
     const latest = dates.length > 0 ? dates[dates.length - 1] : null
-
-    if (latest) {
-      emit('lastDate', latest)
-    } else {
-      emit('lastDate', '-')
-    }
-  } catch (e) {
+    emit('lastDate', latest ?? '-')
+  } catch {
     hasError.value = true
     rawList.value = []
     emit('lastDate', '-')
@@ -58,20 +57,15 @@ async function fetchRams() {
   }
 }
 
-// register_date → "YYYY.MM" 레이블로 변환 후 오름차순 정렬
 const chartData = computed<PricePoint[]>(() => {
-  const sorted = [...rawList.value].sort(
-    (a, b) => new Date(a.registerDate).getTime() - new Date(b.registerDate).getTime()
-  )
-  return sorted.map(r => {
-    const d = new Date(r.registerDate)
+  return rawList.value.map(r => {
+    const d = new Date(r.register_date)
     const yyyy = d.getFullYear()
     const mm = String(d.getMonth() + 1).padStart(2, '0')
-    return {label: `${yyyy}.${mm}`, price: r.currentPrice}
+    return { label: `${yyyy}.${mm}`, price: r.current_price }
   })
 })
 
-// DDR 또는 용량 변경 시 재조회
 watch([selectedDdr, selectedCapacity], () => fetchRams())
 onMounted(() => fetchRams())
 
@@ -93,15 +87,15 @@ const points = computed(() => {
   const n = chartData.value.length
   if (n === 0) return []
   return chartData.value.map((d, i) => {
-    const x = padLeft + (n === 1 ? (svgWidth - padLeft - padRight) / 2 : (i / (n - 1)) * (svgWidth - padLeft - padRight))
+    const x = padLeft + (n === 1
+      ? (svgWidth - padLeft - padRight) / 2
+      : (i / (n - 1)) * (svgWidth - padLeft - padRight))
     const y = padTop + (1 - (d.price - minPrice.value) / (maxPrice.value - minPrice.value)) * (svgHeight - padTop - padBottom)
-    return {x, y, ...d}
+    return { x, y, ...d }
   })
 })
 
-const polyline = computed(() =>
-  points.value.map(p => `${p.x},${p.y}`).join(' ')
-)
+const polyline = computed(() => points.value.map(p => `${p.x},${p.y}`).join(' '))
 
 const areaPath = computed(() => {
   if (points.value.length === 0) return ''
@@ -120,7 +114,7 @@ const yTicks = computed(() => {
   const ticks = []
   for (let v = Math.ceil(minPrice.value / 1000) * 1000; v <= maxPrice.value; v += step) {
     const y = padTop + (1 - (v - minPrice.value) / (maxPrice.value - minPrice.value)) * (svgHeight - padTop - padBottom)
-    ticks.push({v, y})
+    ticks.push({ v, y })
   }
   return ticks
 })
@@ -219,7 +213,6 @@ const totalChangeRate = computed(() =>
           </linearGradient>
         </defs>
 
-        <!-- y축 그리드 -->
         <g v-for="tick in yTicks" :key="tick.v">
           <line
             :x1="padLeft" :y1="tick.y"
@@ -228,69 +221,37 @@ const totalChangeRate = computed(() =>
           />
           <text
             :x="padLeft - 8" :y="tick.y + 4"
-            text-anchor="end"
-            font-size="8"
-            fill="#b0a494"
-          >{{ (tick.v / 1000).toFixed(0) }}k
-          </text>
+            text-anchor="end" font-size="8" fill="#b0a494"
+          >{{ (tick.v / 1000).toFixed(0) }}k</text>
         </g>
 
-        <!-- x축 레이블 (YYYY.MM) -->
         <text
           v-for="(p, i) in points"
           :key="'x' + i"
           :x="p.x" :y="svgHeight - 8"
-          text-anchor="middle"
-          font-size="8"
-          fill="#b0a494"
-        >{{ p.label }}
-        </text>
+          text-anchor="middle" font-size="8" fill="#b0a494"
+        >{{ p.label }}</text>
 
-        <!-- 영역 채우기 -->
         <path :d="areaPath" fill="url(#areaGrad)"/>
-
-        <!-- 라인 -->
         <polyline
           :points="polyline"
-          fill="none"
-          stroke="#c8a96e"
-          stroke-width="2"
-          stroke-linejoin="round"
-          stroke-linecap="round"
+          fill="none" stroke="#c8a96e" stroke-width="2"
+          stroke-linejoin="round" stroke-linecap="round"
         />
 
-        <!-- 포인트 & 호버 -->
         <g v-for="(p, i) in points" :key="'p' + i">
-          <circle
-            :cx="p.x" :cy="p.y" r="14"
-            fill="transparent"
-            style="cursor: pointer"
-            @mouseenter="hoveredIndex = i"
-          />
+          <circle :cx="p.x" :cy="p.y" r="14" fill="transparent" style="cursor:pointer" @mouseenter="hoveredIndex = i"/>
           <circle
             :cx="p.x" :cy="p.y"
             :r="hoveredIndex === i ? 5 : 3.5"
-            fill="#c8a96e"
-            stroke="#fff"
+            fill="#c8a96e" stroke="#fff"
             :stroke-width="hoveredIndex === i ? 2 : 1.5"
             style="transition: r 0.15s"
           />
-
-          <!-- 툴팁 -->
           <g v-if="hoveredIndex === i">
-            <rect
-              :x="p.x - 24" :y="p.y - 26"
-              width="48" height="16"
-              rx="3" ry="3"
-              fill="#2c3e35"
-            />
-            <text
-              :x="p.x" :y="p.y - 15"
-              text-anchor="middle"
-              font-size="7"
-              fill="#e8e2d9"
-              font-weight="500"
-            >{{ p.price.toLocaleString() }}원
+            <rect :x="p.x - 24" :y="p.y - 26" width="48" height="16" rx="3" ry="3" fill="#2c3e35"/>
+            <text :x="p.x" :y="p.y - 15" text-anchor="middle" font-size="7" fill="#e8e2d9" font-weight="500">
+              {{ p.price.toLocaleString() }}원
             </text>
           </g>
         </g>
@@ -408,22 +369,10 @@ const totalChangeRate = computed(() =>
   font-variant-numeric: tabular-nums;
 }
 
-.summary-value.down {
-  color: #2563a8;
-}
-
-.summary-value.up {
-  color: #c0392b;
-}
-
-.summary-value.flat {
-  color: #9a8f82;
-}
-
-.summary-value.tag {
-  font-size: 0.82rem;
-  color: #2c3e35;
-}
+.summary-value.down { color: #2563a8; }
+.summary-value.up { color: #c0392b; }
+.summary-value.flat { color: #9a8f82; }
+.summary-value.tag { font-size: 0.82rem; color: #2c3e35; }
 
 .chart-wrap {
   width: 100%;
@@ -441,14 +390,8 @@ const totalChangeRate = computed(() =>
   min-height: 120px;
 }
 
-.msg-text {
-  font-size: 0.85rem;
-  color: #9a8f82;
-}
-
-.msg-text.error {
-  color: #c0392b;
-}
+.msg-text { font-size: 0.85rem; color: #9a8f82; }
+.msg-text.error { color: #c0392b; }
 
 .chart-svg {
   width: 100%;
@@ -457,11 +400,8 @@ const totalChangeRate = computed(() =>
 }
 
 @media (max-width: 768px) {
-  .ram-status {
-    padding: 0 1.2rem 2rem;
-  }
+  .ram-status { padding: 0 1.2rem 2rem; }
 
-  /* 3개 항목을 항상 균등 3열로 고정 → 용량과 무관하게 레이아웃 동일 */
   .summary-row {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -469,40 +409,12 @@ const totalChangeRate = computed(() =>
     padding: 0.8rem 0.8rem 1.4rem;
   }
 
-  /* 각 항목이 그리드 셀 크기에 맞게 고정, 텍스트 넘침 방지 */
-  .summary-item {
-    min-width: 0;
-    width: 100%;
-  }
+  .summary-item { min-width: 0; width: 100%; }
+  .summary-value { font-size: 0.78rem; white-space: normal; word-break: break-word; }
+  .summary-label { font-size: 0.6rem; }
+  .summary-source { position: absolute; bottom: 0.35rem; right: 0.7rem; }
 
-  .summary-value {
-    font-size: 0.78rem;
-    white-space: normal;
-    word-break: break-word;
-  }
-
-  .summary-label {
-    font-size: 0.6rem;
-  }
-
-  /* 출처 텍스트: absolute 유지하되 grid 내부에서 겹치지 않도록 위치 조정 */
-  .summary-source {
-    position: absolute;
-    bottom: 0.35rem;
-    right: 0.7rem;
-  }
-
-  /* 차트 영역 패딩 확보 */
-  .chart-wrap {
-    padding: 0.8rem 0.2rem 0.6rem;
-  }
-
-  /* SVG 높이를 aspect-ratio로 강제 확보 → 모바일에서 찌그러짐 방지 */
-  .chart-svg {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 600 / 220;
-    min-height: 160px;
-  }
+  .chart-wrap { padding: 0.8rem 0.2rem 0.6rem; }
+  .chart-svg { width: 100%; height: auto; aspect-ratio: 600 / 220; min-height: 160px; }
 }
 </style>
