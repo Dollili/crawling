@@ -12,7 +12,6 @@ const PROMPT = `
 `
 
 Deno.serve(async (req) => {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       headers: {
@@ -24,7 +23,6 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url)
-    // path: /summarize/{id}
     const pathParts = url.pathname.split('/')
     const newsId = parseInt(pathParts[pathParts.length - 1])
     const articleUrl = url.searchParams.get('url') ?? ''
@@ -37,16 +35,20 @@ Deno.serve(async (req) => {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      {
+        db: { schema: 'newsproject' },
+        global: {
+          headers: { 'Accept-Profile': 'newsproject', 'Content-Profile': 'newsproject' },
+        },
+      },
     )
 
-    // DB 캐시 확인
     const { data: cached } = await supabase
       .from('summary')
       .select('summary')
       .eq('news_id', newsId)
       .maybeSingle()
 
-    // SSE 스트림 생성
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder()
@@ -55,7 +57,6 @@ Deno.serve(async (req) => {
         }
 
         try {
-          // 캐시 존재 시 즉시 반환
           if (cached?.summary) {
             send(cached.summary)
             send('[DONE]')
@@ -63,11 +64,8 @@ Deno.serve(async (req) => {
             return
           }
 
-          // Gemini 스트리밍 호출
           const geminiKey = Deno.env.get('GEMINI_API_KEY')!
-          const finalPrompt =
-            PROMPT +
-            `\n기사 제목: ${title}\n링크: ${articleUrl}\n`
+          const finalPrompt = PROMPT + `\n기사 제목: ${title}\n링크: ${articleUrl}\n`
 
           const geminiRes = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`,
@@ -110,8 +108,7 @@ Deno.serve(async (req) => {
 
               try {
                 const parsed = JSON.parse(jsonStr)
-                const text =
-                  parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+                const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
                 if (text) {
                   fullText += text
                   send(text)
@@ -122,7 +119,6 @@ Deno.serve(async (req) => {
             }
           }
 
-          // DB 저장
           if (fullText) {
             await supabase.from('summary').insert({
               news_id: newsId,
