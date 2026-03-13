@@ -38,8 +38,8 @@ __screenshots__/
 # Vite
 *.timestamp-*-*.mjs
 
-# Environment variables
+# Environment variables — .env만 제외 (개발용 실제 키 포함)
+# .env.production 은 Render 환경변수로 주입되므로 ignore 하지 않음
 .env
-.env.production
 .env.local
 .env.*.local

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { fetchNewsList, fetchSummary, getSummaryStreamUrl } from '@/api'
+import { fetchNewsList, fetchSummary, streamSummary } from '@/api'
 import type { NewsItem } from '@/api'
 
 interface DisplayNewsItem {
@@ -65,38 +65,27 @@ const generateSummary = async (item: DisplayNewsItem) => {
   summaryLoadingSet.value = new Set(summaryLoadingSet.value.add(item.id))
   summaryMap.value = { ...summaryMap.value, [item.id]: '' }
 
-  const streamUrl = getSummaryStreamUrl(item.id, item.url, item.title)
-  const eventSource = new EventSource(streamUrl)
-
-  eventSource.onmessage = (e) => {
-    const chunk = e.data
-    if (chunk === '[DONE]') {
+  await streamSummary(
+    item.id,
+    item.url,
+    item.title,
+    (chunk) => {
+      summaryMap.value = { ...summaryMap.value, [item.id]: (summaryMap.value[item.id] ?? '') + chunk }
+    },
+    () => {
       const next = new Set(summaryLoadingSet.value)
       next.delete(item.id)
       summaryLoadingSet.value = next
-      eventSource.close()
-      return
-    }
-    if (chunk === '[ERROR]') {
-      summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
+    },
+    () => {
+      if ((summaryMap.value[item.id] ?? '').length === 0) {
+        summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
+      }
       const next = new Set(summaryLoadingSet.value)
       next.delete(item.id)
       summaryLoadingSet.value = next
-      eventSource.close()
-      return
-    }
-    summaryMap.value = { ...summaryMap.value, [item.id]: (summaryMap.value[item.id] ?? '') + chunk }
-  }
-
-  eventSource.onerror = () => {
-    if ((summaryMap.value[item.id] ?? '').length === 0) {
-      summaryMap.value = { ...summaryMap.value, [item.id]: '현재 요약을 제공할 수 없습니다.' }
-    }
-    const next = new Set(summaryLoadingSet.value)
-    next.delete(item.id)
-    summaryLoadingSet.value = next
-    eventSource.close()
-  }
+    },
+  )
 }
 
 const toggleRow = (item: DisplayNewsItem) => {
@@ -122,7 +111,6 @@ defineExpose({ count: () => newsList.value.length })
 
 <template>
   <div class="news-list">
-    <!-- 로딩 -->
     <div v-if="isLoading" class="state-wrap">
       <svg class="spin" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -130,17 +118,14 @@ defineExpose({ count: () => newsList.value.length })
       <span>불러오는 중...</span>
     </div>
 
-    <!-- 오류 -->
     <div v-else-if="errorMsg" class="state-wrap error">
       {{ errorMsg }}
     </div>
 
-    <!-- 데이터 없음 -->
     <div v-else-if="newsList.length === 0" class="state-wrap">
       수집된 뉴스가 없습니다.
     </div>
 
-    <!-- 목록 -->
     <template v-else>
       <div
         v-for="(item, index) in newsList"
@@ -229,17 +214,11 @@ defineExpose({ count: () => newsList.value.length })
   font-size: 0.9rem;
 }
 
-.state-wrap.error {
-  color: #c0392b;
-}
+.state-wrap.error { color: #c0392b; }
 
-.spin {
-  animation: spin 1s linear infinite;
-}
+.spin { animation: spin 1s linear infinite; }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .news-item {
   border-bottom: 1px solid #e0d8cc;
@@ -310,10 +289,7 @@ defineExpose({ count: () => newsList.value.length })
   flex-shrink: 0;
 }
 
-.news-date {
-  font-size: 0.75rem;
-  color: #b0a494;
-}
+.news-date { font-size: 0.75rem; color: #b0a494; }
 
 .toggle-icon {
   color: #b0a494;
@@ -322,14 +298,9 @@ defineExpose({ count: () => newsList.value.length })
   transition: transform 0.25s ease;
 }
 
-.toggle-icon.open {
-  transform: rotate(180deg);
-  color: #2c3e35;
-}
+.toggle-icon.open { transform: rotate(180deg); color: #2c3e35; }
 
-.news-summary {
-  overflow: hidden;
-}
+.news-summary { overflow: hidden; }
 
 .summary-inner {
   padding: 0 0 1.4rem 2.2rem;
@@ -371,38 +342,14 @@ defineExpose({ count: () => newsList.value.length })
   box-sizing: border-box;
 }
 
-.summary-text :deep(*) {
-  max-width: 100%;
-  box-sizing: border-box;
-  word-break: break-word;
+.summary-text :deep(*) { max-width: 100%; box-sizing: border-box; word-break: break-word; }
+.summary-text :deep(h1), .summary-text :deep(h2), .summary-text :deep(h3) {
+  font-size: 1rem; font-weight: 600; margin: 0.6rem 0 0.3rem; color: #2c3e35;
 }
-
-.summary-text :deep(h1),
-.summary-text :deep(h2),
-.summary-text :deep(h3) {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0.6rem 0 0.3rem;
-  color: #2c3e35;
-}
-
-.summary-text :deep(ul),
-.summary-text :deep(ol) {
-  padding-left: 1.2rem;
-  margin: 0.4rem 0;
-}
-
-.summary-text :deep(li) {
-  margin-bottom: 0.3rem;
-}
-
-.summary-text :deep(p) {
-  margin: 0.4rem 0;
-}
-
-.summary-text :deep(strong) {
-  color: #2c3e35;
-}
+.summary-text :deep(ul), .summary-text :deep(ol) { padding-left: 1.2rem; margin: 0.4rem 0; }
+.summary-text :deep(li) { margin-bottom: 0.3rem; }
+.summary-text :deep(p) { margin: 0.4rem 0; }
+.summary-text :deep(strong) { color: #2c3e35; }
 
 .news-link {
   display: inline-flex;
@@ -422,16 +369,9 @@ defineExpose({ count: () => newsList.value.length })
   vertical-align: middle;
 }
 
-.news-link:hover {
-  background-color: #c8a96e;
-  color: #2c3e35;
-}
+.news-link:hover { background-color: #c8a96e; color: #2c3e35; }
 
-.summary-actions {
-  display: flex;
-  align-items: stretch;
-  gap: 0.6rem;
-}
+.summary-actions { display: flex; align-items: stretch; gap: 0.6rem; }
 
 .generate-btn {
   display: inline-flex;
@@ -451,10 +391,7 @@ defineExpose({ count: () => newsList.value.length })
   height: 2rem;
 }
 
-.generate-btn:hover {
-  background-color: transparent;
-  color: #2c3e35;
-}
+.generate-btn:hover { background-color: transparent; color: #2c3e35; }
 
 .streaming-cursor {
   display: inline;
@@ -463,31 +400,15 @@ defineExpose({ count: () => newsList.value.length })
   animation: blink 0.8s step-end infinite;
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-.expand-enter-active,
-.expand-leave-active {
+.expand-enter-active, .expand-leave-active {
   transition: max-height 0.3s ease, opacity 0.25s ease;
   max-height: 400px;
 }
 
-.expand-enter-from,
-.expand-leave-to {
-  max-height: 0;
-  opacity: 0;
-}
+.expand-enter-from, .expand-leave-to { max-height: 0; opacity: 0; }
 
-@media (max-width: 768px) {
-  .news-list {
-    padding: 0 1.2rem 2rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .news-date { display: none; }
-  .news-title { font-size: 0.92rem; }
-}
+@media (max-width: 768px) { .news-list { padding: 0 1.2rem 2rem; } }
+@media (max-width: 480px) { .news-date { display: none; } .news-title { font-size: 0.92rem; } }
 </style>
