@@ -41,9 +41,59 @@ export const fetchSummary = async (newsId: number): Promise<string | null> => {
   return data?.summary ?? null
 }
 
-// Edge Function SSE 스트리밍 URL 생성
-export const getSummaryStreamUrl = (id: number, url: string, title: string): string => {
+// Edge Function SSE 스트리밍 (fetch 기반 — Authorization 헤더 포함)
+export const streamSummary = async (
+  id: number,
+  url: string,
+  title: string,
+  onChunk: (chunk: string) => void,
+  onDone: () => void,
+  onError: () => void,
+): Promise<void> => {
   const base = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL as string
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
   const params = new URLSearchParams({ url, title })
-  return `${base}/summarize/${id}?${params}`
+
+  try {
+    const res = await fetch(`${base}/summarize/${id}?${params}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${anonKey}`,
+      },
+    })
+
+    if (!res.ok || !res.body) {
+      onError()
+      return
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const text = decoder.decode(value, { stream: true })
+      const lines = text.split('\n')
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const chunk = line.slice(6)
+        if (chunk === '[DONE]') {
+          onDone()
+          return
+        }
+        if (chunk === '[ERROR]') {
+          onError()
+          return
+        }
+        if (chunk) {
+          onChunk(chunk)
+        }
+      }
+    }
+  } catch {
+    onError()
+  }
 }

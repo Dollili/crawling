@@ -8,15 +8,19 @@ Deno.serve(async () => {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      {
+        db: { schema: 'newsproject' },
+        global: {
+          headers: { 'Accept-Profile': 'newsproject', 'Content-Profile': 'newsproject' },
+        },
+      },
     )
 
-    // RSS fetch
     const res = await fetch(RSS_URL, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
     })
     const xmlText = await res.text()
 
-    // XML 파싱
     const parser = new DOMParser()
     const xmlDoc = parser.parseFromString(xmlText, 'text/xml')
     const items = xmlDoc.querySelectorAll('item')
@@ -33,7 +37,6 @@ Deno.serve(async () => {
 
       if (!url) continue
 
-      // 중복 체크
       const { count } = await supabase
         .from('news')
         .select('*', { count: 'exact', head: true })
