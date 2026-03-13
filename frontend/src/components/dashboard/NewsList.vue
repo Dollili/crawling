@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
-import apiClient from '@/api'
-import type { SilentConfig } from '@/api'
+import { ref, onMounted, watch } from 'vue'
+import { fetchNewsList, fetchSummary, getSummaryStreamUrl } from '@/api'
+import type { NewsItem } from '@/api'
 
-interface NewsItem {
+interface DisplayNewsItem {
   id: number
   title: string
   media: string
@@ -15,7 +15,7 @@ interface NewsItem {
 const props = defineProps<{ keyword: string }>()
 const emit = defineEmits<{ (e: 'lastDate', date: string): void }>()
 
-const newsList = ref<NewsItem[]>([])
+const newsList = ref<DisplayNewsItem[]>([])
 const expandedId = ref<number | null>(null)
 const summaryMap = ref<Record<number, string | null>>({})
 const summaryLoadingSet = ref(new Set<number>())
@@ -27,13 +27,20 @@ const fetchNews = async () => {
   errorMsg.value = null
   expandedId.value = null
   try {
-    const res = await apiClient.post<NewsItem[]>('/api/news', { keyword: props.keyword })
-    newsList.value = res.data
-    if (res.data.length > 0) {
-      const latest = res.data.reduce((a, b) =>
-        new Date(a.createDateTime) > new Date(b.createDateTime) ? a : b
+    const data = await fetchNewsList(props.keyword)
+    newsList.value = data.map((item: NewsItem) => ({
+      id: item.id,
+      title: item.title,
+      media: item.media,
+      writeDateTime: item.write_date_time,
+      url: item.url,
+      createDateTime: item.create_date_time,
+    }))
+    if (data.length > 0) {
+      const latest = data.reduce((a: NewsItem, b: NewsItem) =>
+        new Date(a.create_date_time) > new Date(b.create_date_time) ? a : b
       )
-      emit('lastDate', latest.createDateTime)
+      emit('lastDate', latest.create_date_time)
     }
   } catch (_) {
     errorMsg.value = '뉴스를 불러오는 데 실패했습니다.'
@@ -44,26 +51,22 @@ const fetchNews = async () => {
 
 watch(() => props.keyword, fetchNews)
 
-const fetchSummary = async (item: NewsItem) => {
+const fetchSummaryForItem = async (item: DisplayNewsItem) => {
   if (summaryMap.value[item.id] !== undefined) return
   try {
-    const res = await apiClient.get<string | null>(`/api/news/summary/${item.id}`, { silent: true } as SilentConfig)
-    summaryMap.value = { ...summaryMap.value, [item.id]: res.data ?? null }
+    const result = await fetchSummary(item.id)
+    summaryMap.value = { ...summaryMap.value, [item.id]: result }
   } catch (_) {
     summaryMap.value = { ...summaryMap.value, [item.id]: null }
   }
 }
 
-const generateSummary = async (item: NewsItem) => {
+const generateSummary = async (item: DisplayNewsItem) => {
   summaryLoadingSet.value = new Set(summaryLoadingSet.value.add(item.id))
   summaryMap.value = { ...summaryMap.value, [item.id]: '' }
 
-  const params = new URLSearchParams({
-    url: item.url,
-    title: item.title,
-  })
-  const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
-  const eventSource = new EventSource(`${apiBase}/api/news/summary/stream/${item.id}?${params}`)
+  const streamUrl = getSummaryStreamUrl(item.id, item.url, item.title)
+  const eventSource = new EventSource(streamUrl)
 
   eventSource.onmessage = (e) => {
     const chunk = e.data
@@ -96,12 +99,12 @@ const generateSummary = async (item: NewsItem) => {
   }
 }
 
-const toggleRow = (item: NewsItem) => {
+const toggleRow = (item: DisplayNewsItem) => {
   if (expandedId.value === item.id) {
     expandedId.value = null
   } else {
     expandedId.value = item.id
-    fetchSummary(item)
+    fetchSummaryForItem(item)
   }
 }
 
@@ -170,20 +173,17 @@ defineExpose({ count: () => newsList.value.length })
                 </svg>
                 AI 요약
               </div>
-              <!-- 실제 텍스트가 있거나 스트리밍 중일 때만 텍스트 영역 표시 -->
               <template v-if="(summaryMap[item.id] !== null && summaryMap[item.id] !== undefined && summaryMap[item.id] !== '') || summaryLoadingSet.has(item.id)">
                 <p class="summary-text">
                   <span v-html="summaryMap[item.id]"></span><span v-if="summaryLoadingSet.has(item.id)" class="streaming-cursor">▌</span>
                 </p>
               </template>
-              <!-- 텍스트가 없고 로딩 중이면 스피너 -->
               <div v-else-if="summaryLoadingSet.has(item.id)" class="summary-loading">
                 <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
                 요약 중...
               </div>
-              <!-- 아무것도 없으면 버튼 표시 -->
               <template v-else>
                 <div class="summary-actions">
                   <button class="generate-btn" @click.stop="generateSummary(item)">
