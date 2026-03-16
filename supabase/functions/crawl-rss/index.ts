@@ -46,11 +46,20 @@ Deno.serve(async () => {
 
       const writeDatetime = new Date(pubDate).toISOString()
 
+      // pg_net 비동기 지연으로 인해 실행 시각이 부정확하므로, KST 09:00으로 명시적 지정
+      // cron은 UTC 00:00(= KST 09:00)에 실행되므로 오늘 날짜의 UTC 00:00 = KST 09:00
+      const now = new Date()
+      const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+      const createDatetime = new Date(
+        Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0)
+      ).toISOString()
+
       const { error } = await supabase.from('news').insert({
         title,
         url,
         media,
         write_date_time: writeDatetime,
+        create_date_time: createDatetime,
       })
 
       if (error) {

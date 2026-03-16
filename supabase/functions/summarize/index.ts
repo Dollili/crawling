@@ -54,7 +54,12 @@ Deno.serve(async (req) => {
       async start(controller) {
         const encoder = new TextEncoder()
         const send = (data: string) => {
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+          const payload = data
+              .split('\n')
+              .map(line => `data: ${line}`)
+              .join('\n') + '\n\n'
+
+          controller.enqueue(encoder.encode(payload))
         }
 
         try {
@@ -69,7 +74,7 @@ Deno.serve(async (req) => {
           const finalPrompt = PROMPT + `\n기사 제목: ${title}\n링크: ${articleUrl}\n`
 
           const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${geminiKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -86,6 +91,15 @@ Deno.serve(async (req) => {
           )
 
           if (!geminiRes.ok || !geminiRes.body) {
+            const errText = await geminiRes.text()
+            console.error('Gemini status:', geminiRes.status)
+            console.error('Gemini body:', errText)
+            send('[ERROR]')
+            controller.close()
+            return
+          }
+
+          if (!geminiRes.ok || !geminiRes.body) {
             send('[ERROR]')
             controller.close()
             return
@@ -94,17 +108,24 @@ Deno.serve(async (req) => {
           const reader = geminiRes.body.getReader()
           const decoder = new TextDecoder()
           let fullText = ''
+          let buffer = ''
 
           while (true) {
             const { done, value } = await reader.read()
             if (done) break
 
-            const chunk = decoder.decode(value, { stream: true })
-            const lines = chunk.split('\n')
+            buffer += decoder.decode(value, { stream: true })
 
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              const jsonStr = line.slice(6).trim()
+            const events = buffer.split('\n\n')
+            buffer = events.pop() ?? ''
+
+            for (const event of events) {
+              const lines = event.split('\n')
+              const dataLines = lines
+                  .filter(line => line.startsWith('data:'))
+                  .map(line => line.slice(5).trim())
+
+              const jsonStr = dataLines.join('\n')
               if (!jsonStr || jsonStr === '[DONE]') continue
 
               try {
@@ -114,8 +135,8 @@ Deno.serve(async (req) => {
                   fullText += text
                   send(text)
                 }
-              } catch {
-                // JSON 파싱 실패 시 무시
+              } catch (e) {
+                console.error('JSON parse error:', jsonStr, e)
               }
             }
           }
