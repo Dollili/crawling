@@ -50,16 +50,16 @@ Deno.serve(async (req) => {
       },
     )
 
-    // DB 캐시 조회를 스트림 밖에서 먼저 처리
+    const encoder = new TextEncoder()
+
+    // 1. DB 캐시 조회
     const { data: cached } = await supabase
       .from('summary')
       .select('summary')
       .eq('news_id', newsId)
       .maybeSingle()
 
-    const encoder = new TextEncoder()
 
-    // 캐시가 있으면 즉시 반환 (스트리밍 불필요)
     if (cached?.summary) {
       const payload =
         `data: ${cached.summary.replace(/\n/g, '\\n')}\n\n` +
@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
       return new Response(encoder.encode(payload), { headers: SSE_HEADERS })
     }
 
-    // 캐시 없음 → Gemini 스트리밍
+    // 2. Gemini API 호출
     const geminiKey = Deno.env.get('GEMINI_API_KEY')!
     const finalPrompt = PROMPT + `\n기사 제목: ${title}\n링크: ${articleUrl}\n`
 
@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
           contents: [{ parts: [{ text: finalPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 8192,
             topK: 40,
             topP: 0.8,
           },
@@ -94,64 +94,69 @@ Deno.serve(async (req) => {
       return new Response('data: [ERROR]\n\n', { headers: SSE_HEADERS })
     }
 
-    // Gemini 스트림을 프론트로 그대로 중계
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = geminiRes.body!.getReader()
-        const decoder = new TextDecoder()
-        let fullText = ''
-        let buffer = ''
+    // 3. Gemini 응답이 확보된 상태에서 TransformStream으로 중계
+    //    → Response 반환 시점에 이미 스트림 데이터가 흐르기 시작하므로 EarlyDrop 없음
+    const { readable, writable } = new TransformStream()
+    const writer = writable.getWriter()
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
+    // 백그라운드에서 Gemini → 프론트 중계 (Response 반환과 동시에 실행)
+    const pipe = async () => {
+      const reader = geminiRes.body!.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let buffer = ''
 
-            buffer += decoder.decode(value, { stream: true })
-            const events = buffer.split('\n\n')
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          // Gemini SSE는 \r\n\r\n 또는 \n\n 으로 이벤트 구분
+          const events = buffer.split(/\r?\n\r?\n/)
             buffer = events.pop() ?? ''
 
-            for (const event of events) {
-              const lines = event.split('\n')
-              const dataLines = lines
-                .filter(line => line.startsWith('data:'))
-                .map(line => line.slice(5).trim())
+          for (const event of events) {
+            const lines = event.split('\n')
+            const dataLines = lines
+              .filter(line => line.startsWith('data:'))
+              .map(line => line.slice(5).trim())
 
-              const jsonStr = dataLines.join('\n')
-              if (!jsonStr || jsonStr === '[DONE]') continue
+            const jsonStr = dataLines.join('\n')
+            if (!jsonStr || jsonStr === '[DONE]') continue
 
-              try {
-                const parsed = JSON.parse(jsonStr)
-                const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-                if (text) {
-                  fullText += text
-                  // 줄바꿈 이스케이프 후 단일 data: 라인으로 전송
-                  controller.enqueue(
-                    encoder.encode(`data: ${text.replace(/\n/g, '\\n')}\n\n`)
-                  )
-                }
-              } catch (e) {
-                console.error('JSON parse error:', e)
+            try {
+              const parsed = JSON.parse(jsonStr)
+              const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+              if (text) {
+                fullText += text
+                await writer.write(
+                  encoder.encode(`data: ${text.replace(/\n/g, '\\n')}\n\n`)
+                )
               }
+            } catch (e) {
+              console.error('JSON parse error:', e)
             }
           }
-
-          // 스트리밍 완료 후 DB 저장
-          if (fullText) {
-            await supabase.from('summary').insert({ news_id: newsId, summary: fullText })
-          }
-
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-          controller.close()
-        } catch (e) {
-          console.error('[stream error]', e)
-          controller.enqueue(encoder.encode('data: [ERROR]\n\n'))
-          controller.close()
         }
-      },
-    })
 
-    return new Response(stream, { headers: SSE_HEADERS })
+        if (fullText) {
+          await supabase.from('summary').insert({ news_id: newsId, summary: fullText })
+        }
+
+        await writer.write(encoder.encode('data: [DONE]\n\n'))
+      } catch (e) {
+        console.error('[pipe error]', e)
+        await writer.write(encoder.encode('data: [ERROR]\n\n'))
+      } finally {
+        await writer.close()
+      }
+    }
+
+    // pipe()를 await 하지 않고 백그라운드 실행 → Response를 즉시 반환
+    pipe()
+
+    return new Response(readable, { headers: SSE_HEADERS })
 
   } catch (e) {
     console.error('[summarize fatal]', e)
