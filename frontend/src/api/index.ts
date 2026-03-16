@@ -91,7 +91,8 @@ export const streamSummary = async (
           return
         }
         if (chunk) {
-          onChunk(chunk)
+          // Edge Function에서 \n으로 이스케이프된 줄바꿈을 복원
+          onChunk(chunk.replace(/\\n/g, '\n'))
         }
       }
     }
