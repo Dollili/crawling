@@ -1,61 +1,58 @@
-# 📰 NewsDigest — 뉴스 크롤링 & 램 가격 대시보드
+# NewsDigest Dashboard
 
-> Google News RSS 크롤링 + Gemini AI 요약 + 다나와 RAM 최저가 수집을 하나의 대시보드에서 확인하는 풀스택 프로젝트
+Google News RSS와 삼성 RAM 가격 데이터를 Supabase에 수집하고, Vue 대시보드에서 조회하는 프로젝트입니다.
 
----
+## 구성
 
-## 📌 주요 기능
+### 프론트엔드
+- Vue 3
+- TypeScript
+- Vite
 
-| 기능 | 설명                                                  |
-|---|-----------------------------------------------------|
-| 📡 뉴스 자동 수집 | Google News RSS를 통해 키워드 기반 은행 뉴스를 수집 (오전 9시)        |
-| 🤖 AI 요약 | Gemini API를 활용해 뉴스 기사를 5줄 HTML 요약으로 생성              |
-| 💾 RAM 가격 수집 | Playwright로 다나와에서 삼성 RAM(DDR4/DDR5, 8~64GB) 최저가 크롤링 |
-| 🖥️ 대시보드 UI | Vue 3 기반 SPA — 뉴스/램 탭 전환, 은행별 키워드 필터                |
+### 백엔드 서비스
+- Supabase Database
+- Supabase Edge Functions
+- Supabase Cron (`pg_cron`, `pg_net`)
 
----
+## 주요 기능
 
-## 🛠️ 기술 스택
+- Google News RSS를 매일 수집하여 `newsproject.news` 테이블에 저장
+- AI 요약을 생성하고 `newsproject.summary` 테이블에 캐시
+- 삼성 RAM 가격을 매월 수집하여 `newsproject.ram_month` 테이블에 저장
+- 뉴스 목록, 요약, RAM 가격 추이를 대시보드에서 조회
 
-### Backend
-- **Java 21** / **Spring Boot 4.0.3**
-- **MyBatis** — SQL Mapper 기반 DB 접근
-- **Jsoup** — HTML 파싱
-- **Playwright (Java)** — 동적 웹 크롤링 (다나와)
-- **Google GenAI SDK** — Gemini 3 Flash 모델 호출
-- **MySQL** — 뉴스 및 RAM 가격 데이터 저장
+## Supabase Edge Functions
 
-### Frontend
-- **Vue 3** + **TypeScript** (Composition API)
-- **Vite** — 빌드 도구
-- **Vue Router**
+### `crawl-rss`
+- Google News RSS에서 최대 30건을 수집합니다.
+- 이미 저장된 `url`은 중복 저장하지 않습니다.
 
----
+### `summarize`
+- 저장된 요약이 있으면 캐시를 바로 반환합니다.
+- 요약이 없으면 Gemini 응답을 스트리밍하고, 완료된 요약을 저장합니다.
 
-## 🌐 API 명세
+### `crawl-rams`
+- 삼성 RAM 월간 가격 데이터를 수집합니다.
+- 같은 월, 같은 RAM 종류, 같은 용량 데이터가 이미 있으면 건너뜁니다.
 
-### 뉴스
+## 스케줄
 
-| Method | Endpoint | 설명 |
-|---|---|---|
-| `POST` | `/api/news` | 키워드로 뉴스 목록 조회 |
-| `GET` | `/api/news/summary/{id}` | 저장된 요약 조회 |
+- `crawl-rss`: 매일 오전 9시(KST)
+- `crawl-rams`: 매월 1일 오전 9시 5분(KST)
 
-### RAM
+크론 등록 SQL은 `supabase/migrations/20240101000000_setup_cron.sql` 에서 관리합니다.
 
-| Method | Endpoint | 설명 |
-|---|---|---|
-| `GET` | `/api/rams` | RAM 가격 목록 조회 |
+## 프론트 데이터 흐름
 
----
+- 뉴스 목록과 저장된 요약은 Supabase에서 직접 조회합니다.
+- 요약 생성은 `summarize` Edge Function을 호출합니다.
+- RAM 차트 데이터는 `ram_month` 테이블에서 직접 조회합니다.
 
-## 📅 스케줄러
+## 디렉터리
 
-뉴스 수집은 별도 API 호출 없이 **서버 실행 시 자동으로 동작**합니다.
+- `frontend`: Vue 프론트엔드
+- `supabase`: Edge Functions, 마이그레이션, 크론 설정
 
-```
-매일 09:00 ~ 21:00, 3시간 간격으로 RSS 자동 수집
-cron: "0 0 9 * * ?"
-```
+## 참고
 
----
+- 기존 `backend/` 디렉터리는 제거되었습니다.
