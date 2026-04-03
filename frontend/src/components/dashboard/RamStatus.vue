@@ -29,6 +29,7 @@ const capacities: Capacity[] = ['8GB', '16GB', '32GB', '64GB']
 const rawList = ref<RamRecord[]>([])
 const isLoading = ref(false)
 const hasError = ref(false)
+const visibleMonthCount = 6
 
 async function fetchRams() {
   isLoading.value = true
@@ -57,8 +58,10 @@ async function fetchRams() {
   }
 }
 
+const recentRawList = computed(() => rawList.value.slice(-visibleMonthCount))
+
 const chartData = computed<PricePoint[]>(() => {
-  return rawList.value.map(r => {
+  return recentRawList.value.map(r => {
     const d = new Date(r.register_date)
     const yyyy = d.getFullYear()
     const mm = String(d.getMonth() + 1).padStart(2, '0')
