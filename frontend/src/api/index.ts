@@ -13,7 +13,7 @@ export interface NewsItem {
 export const fetchNewsList = async (keyword: string): Promise<NewsItem[]> => {
   let query = supabase
     .from('news')
-    .select('*')
+    .select('id, title, media, write_date_time, url, create_date_time')
     .order('write_date_time', { ascending: false })
 
   if (keyword) {

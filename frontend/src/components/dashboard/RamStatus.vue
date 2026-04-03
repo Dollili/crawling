@@ -34,10 +34,11 @@ const visibleMonthCount = 6
 async function fetchRams() {
   isLoading.value = true
   hasError.value = false
+
   try {
     const { data, error } = await supabase
       .from('ram_month')
-      .select('*')
+      .select('ram_type, ram_size, current_price, register_date, create_date_time')
       .eq('ram_type', selectedDdr.value)
       .eq('ram_size', selectedCapacity.value)
       .order('register_date', { ascending: true })
@@ -46,7 +47,7 @@ async function fetchRams() {
 
     rawList.value = data ?? []
 
-    const dates = rawList.value.map(r => r.create_date_time).filter(Boolean).sort()
+    const dates = rawList.value.map((row) => row.create_date_time).filter(Boolean).sort()
     const latest = dates.length > 0 ? dates[dates.length - 1] : null
     emit('lastDate', latest ?? '-')
   } catch {
@@ -61,11 +62,11 @@ async function fetchRams() {
 const recentRawList = computed(() => rawList.value.slice(-visibleMonthCount))
 
 const chartData = computed<PricePoint[]>(() => {
-  return recentRawList.value.map(r => {
-    const d = new Date(r.register_date)
-    const yyyy = d.getFullYear()
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    return { label: `${yyyy}.${mm}`, price: r.current_price }
+  return recentRawList.value.map((row) => {
+    const date = new Date(row.register_date)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    return { label: `${year}.${month}`, price: row.current_price }
   })
 })
 
@@ -80,45 +81,57 @@ const padTop = 20
 const padBottom = 36
 
 const minPrice = computed(() =>
-  chartData.value.length ? Math.min(...chartData.value.map(d => d.price)) * 0.97 : 0
+  chartData.value.length ? Math.min(...chartData.value.map((item) => item.price)) * 0.97 : 0,
 )
+
 const maxPrice = computed(() =>
-  chartData.value.length ? Math.max(...chartData.value.map(d => d.price)) * 1.03 : 1
+  chartData.value.length ? Math.max(...chartData.value.map((item) => item.price)) * 1.03 : 1,
 )
 
 const points = computed(() => {
-  const n = chartData.value.length
-  if (n === 0) return []
-  return chartData.value.map((d, i) => {
-    const x = padLeft + (n === 1
-      ? (svgWidth - padLeft - padRight) / 2
-      : (i / (n - 1)) * (svgWidth - padLeft - padRight))
-    const y = padTop + (1 - (d.price - minPrice.value) / (maxPrice.value - minPrice.value)) * (svgHeight - padTop - padBottom)
-    return { x, y, ...d }
+  const count = chartData.value.length
+  if (count === 0) return []
+
+  return chartData.value.map((item, index) => {
+    const x = padLeft + (
+      count === 1
+        ? (svgWidth - padLeft - padRight) / 2
+        : (index / (count - 1)) * (svgWidth - padLeft - padRight)
+    )
+    const y = padTop + (
+      1 - (item.price - minPrice.value) / (maxPrice.value - minPrice.value)
+    ) * (svgHeight - padTop - padBottom)
+
+    return { x, y, ...item }
   })
 })
 
-const polyline = computed(() => points.value.map(p => `${p.x},${p.y}`).join(' '))
+const polyline = computed(() => points.value.map((point) => `${point.x},${point.y}`).join(' '))
 
 const areaPath = computed(() => {
   if (points.value.length === 0) return ''
+
   const first = points.value[0]!
   const last = points.value[points.value.length - 1]!
   const bottom = svgHeight - padBottom
-  return `M${first.x},${bottom} ` +
-    points.value.map(p => `L${p.x},${p.y}`).join(' ') +
-    ` L${last.x},${bottom} Z`
+
+  return `M${first.x},${bottom} ${points.value.map((point) => `L${point.x},${point.y}`).join(' ')} L${last.x},${bottom} Z`
 })
 
 const yTicks = computed(() => {
   if (chartData.value.length === 0) return []
+
   const range = maxPrice.value - minPrice.value
   const step = Math.ceil(range / 4 / 1000) * 1000 || 1000
-  const ticks = []
-  for (let v = Math.ceil(minPrice.value / 1000) * 1000; v <= maxPrice.value; v += step) {
-    const y = padTop + (1 - (v - minPrice.value) / (maxPrice.value - minPrice.value)) * (svgHeight - padTop - padBottom)
-    ticks.push({ v, y })
+  const ticks: Array<{ v: number; y: number }> = []
+
+  for (let value = Math.ceil(minPrice.value / 1000) * 1000; value <= maxPrice.value; value += step) {
+    const y = padTop + (
+      1 - (value - minPrice.value) / (maxPrice.value - minPrice.value)
+    ) * (svgHeight - padTop - padBottom)
+    ticks.push({ v: value, y })
   }
+
   return ticks
 })
 
@@ -128,22 +141,40 @@ const firstPrice = computed(() => chartData.value[0]?.price ?? 0)
 const lastPrice = computed(() => chartData.value[chartData.value.length - 1]?.price ?? 0)
 const totalChange = computed(() => lastPrice.value - firstPrice.value)
 const totalChangeRate = computed(() =>
-  firstPrice.value ? ((totalChange.value / firstPrice.value) * 100).toFixed(1) : '0.0'
+  firstPrice.value ? ((totalChange.value / firstPrice.value) * 100).toFixed(1) : '0.0',
+)
+
+const previousMonthPrice = computed(() =>
+  chartData.value.length >= 2 ? chartData.value[chartData.value.length - 2]?.price ?? 0 : 0,
+)
+const monthlyChange = computed(() => lastPrice.value - previousMonthPrice.value)
+const monthlyChangeRate = computed(() =>
+  previousMonthPrice.value ? ((monthlyChange.value / previousMonthPrice.value) * 100).toFixed(1) : '0.0',
 )
 </script>
 
 <template>
   <div class="ram-status">
     <div class="tab-bar">
-      <button v-for="ddr in ddrTypes" :key="ddr" class="tab-btn"
-        :class="{ active: selectedDdr === ddr }" @click="selectedDdr = ddr">
+      <button
+        v-for="ddr in ddrTypes"
+        :key="ddr"
+        class="tab-btn"
+        :class="{ active: selectedDdr === ddr }"
+        @click="selectedDdr = ddr"
+      >
         {{ ddr }}
       </button>
     </div>
 
     <div class="capacity-bar">
-      <button v-for="cap in capacities" :key="cap" class="cap-btn"
-        :class="{ active: selectedCapacity === cap }" @click="selectedCapacity = cap">
+      <button
+        v-for="cap in capacities"
+        :key="cap"
+        class="cap-btn"
+        :class="{ active: selectedCapacity === cap }"
+        @click="selectedCapacity = cap"
+      >
         {{ cap }}
       </button>
     </div>
@@ -153,6 +184,7 @@ const totalChangeRate = computed(() =>
         <span class="summary-label">현재가</span>
         <span class="summary-value">{{ lastPrice.toLocaleString() }}원</span>
       </div>
+
       <div class="summary-item">
         <span class="summary-label">6개월 변동</span>
         <span class="summary-value" :class="{ down: totalChange < 0, up: totalChange > 0, flat: totalChange === 0 }">
@@ -163,53 +195,104 @@ const totalChangeRate = computed(() =>
           </template>
         </span>
       </div>
+
+      <div class="summary-item">
+        <span class="summary-label">전월 대비</span>
+        <span class="summary-value" :class="{ down: monthlyChange < 0, up: monthlyChange > 0, flat: monthlyChange === 0 }">
+          <template v-if="chartData.length < 2">비교 불가</template>
+          <template v-else-if="monthlyChange === 0">변동없음</template>
+          <template v-else>
+            {{ monthlyChange > 0 ? '▲' : '▼' }}
+            {{ Math.abs(monthlyChange).toLocaleString() }}원 ({{ monthlyChangeRate }}%)
+          </template>
+        </span>
+      </div>
+
       <div class="summary-item">
         <span class="summary-label">구분</span>
         <span class="summary-value tag">{{ selectedDdr }} · {{ selectedCapacity }}</span>
       </div>
+
       <div class="summary-source">출처: 다나와</div>
     </div>
 
     <div v-if="isLoading" class="chart-wrap center-msg">
-      <span class="msg-text">불러오는 중...</span>
+      <span class="msg-text">데이터를 불러오는 중입니다.</span>
     </div>
     <div v-else-if="hasError" class="chart-wrap center-msg">
       <span class="msg-text error">데이터를 불러오지 못했습니다.</span>
     </div>
     <div v-else-if="chartData.length === 0" class="chart-wrap center-msg">
-      <span class="msg-text">조회된 데이터가 없습니다.</span>
+      <span class="msg-text">조회할 데이터가 없습니다.</span>
     </div>
     <div v-else class="chart-wrap">
       <svg :viewBox="`0 0 ${svgWidth} ${svgHeight}`" class="chart-svg" @mouseleave="hoveredIndex = null">
         <defs>
           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#c8a96e" stop-opacity="0.18"/>
-            <stop offset="100%" stop-color="#c8a96e" stop-opacity="0.01"/>
+            <stop offset="0%" stop-color="#c8a96e" stop-opacity="0.18" />
+            <stop offset="100%" stop-color="#c8a96e" stop-opacity="0.01" />
           </linearGradient>
         </defs>
+
         <g v-for="tick in yTicks" :key="tick.v">
-          <line :x1="padLeft" :y1="tick.y" :x2="svgWidth - padRight" :y2="tick.y"
-            stroke="#e0d8cc" stroke-width="1" stroke-dasharray="3,3"/>
+          <line
+            :x1="padLeft"
+            :y1="tick.y"
+            :x2="svgWidth - padRight"
+            :y2="tick.y"
+            stroke="#e0d8cc"
+            stroke-width="1"
+            stroke-dasharray="3,3"
+          />
           <text :x="padLeft - 8" :y="tick.y + 4" text-anchor="end" font-size="8" fill="#b0a494">
             {{ (tick.v / 1000).toFixed(0) }}k
           </text>
         </g>
-        <text v-for="(p, i) in points" :key="'x' + i"
-          :x="p.x" :y="svgHeight - 8" text-anchor="middle" font-size="8" fill="#b0a494">
-          {{ p.label }}
+
+        <text
+          v-for="(point, index) in points"
+          :key="`x-${index}`"
+          :x="point.x"
+          :y="svgHeight - 8"
+          text-anchor="middle"
+          font-size="8"
+          fill="#b0a494"
+        >
+          {{ point.label }}
         </text>
-        <path :d="areaPath" fill="url(#areaGrad)"/>
-        <polyline :points="polyline" fill="none" stroke="#c8a96e" stroke-width="2"
-          stroke-linejoin="round" stroke-linecap="round"/>
-        <g v-for="(p, i) in points" :key="'p' + i">
-          <circle :cx="p.x" :cy="p.y" r="14" fill="transparent" style="cursor:pointer" @mouseenter="hoveredIndex = i"/>
-          <circle :cx="p.x" :cy="p.y" :r="hoveredIndex === i ? 5 : 3.5"
-            fill="#c8a96e" stroke="#fff" :stroke-width="hoveredIndex === i ? 2 : 1.5"
-            style="transition: r 0.15s"/>
-          <g v-if="hoveredIndex === i">
-            <rect :x="p.x - 24" :y="p.y - 26" width="48" height="16" rx="3" ry="3" fill="#2c3e35"/>
-            <text :x="p.x" :y="p.y - 15" text-anchor="middle" font-size="7" fill="#e8e2d9" font-weight="500">
-              {{ p.price.toLocaleString() }}원
+
+        <path :d="areaPath" fill="url(#areaGrad)" />
+        <polyline
+          :points="polyline"
+          fill="none"
+          stroke="#c8a96e"
+          stroke-width="2"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+
+        <g v-for="(point, index) in points" :key="`p-${index}`">
+          <circle
+            :cx="point.x"
+            :cy="point.y"
+            r="14"
+            fill="transparent"
+            style="cursor: pointer"
+            @mouseenter="hoveredIndex = index"
+          />
+          <circle
+            :cx="point.x"
+            :cy="point.y"
+            :r="hoveredIndex === index ? 5 : 3.5"
+            fill="#c8a96e"
+            stroke="#fff"
+            :stroke-width="hoveredIndex === index ? 2 : 1.5"
+            style="transition: r 0.15s"
+          />
+          <g v-if="hoveredIndex === index">
+            <rect :x="point.x - 24" :y="point.y - 26" width="48" height="16" rx="3" ry="3" fill="#2c3e35" />
+            <text :x="point.x" :y="point.y - 15" text-anchor="middle" font-size="7" fill="#e8e2d9" font-weight="500">
+              {{ point.price.toLocaleString() }}원
             </text>
           </g>
         </g>
@@ -258,7 +341,7 @@ const totalChangeRate = computed(() =>
 .chart-svg { width: 100%; height: auto; display: block; }
 @media (max-width: 768px) {
   .ram-status { padding: 0 1.2rem 2rem; }
-  .summary-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem 0.5rem; padding: 0.8rem 0.8rem 1.4rem; }
+  .summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 0.5rem; padding: 0.8rem 0.8rem 1.4rem; }
   .summary-item { min-width: 0; width: 100%; }
   .summary-value { font-size: 0.78rem; white-space: normal; word-break: break-word; }
   .summary-label { font-size: 0.6rem; }

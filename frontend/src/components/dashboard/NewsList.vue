@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { fetchNewsList, fetchSummary, streamSummary } from '@/api'
 import type { NewsItem } from '@/api'
+import { sanitizeSummaryHtml } from '@/lib/sanitizeSummaryHtml'
 
 interface DisplayNewsItem {
   id: number
@@ -26,6 +27,7 @@ const fetchNews = async () => {
   isLoading.value = true
   errorMsg.value = null
   expandedId.value = null
+
   try {
     const data = await fetchNewsList(props.keyword)
     newsList.value = data.map((item: NewsItem) => ({
@@ -36,14 +38,15 @@ const fetchNews = async () => {
       url: item.url,
       createDateTime: item.create_date_time,
     }))
+
     if (data.length > 0) {
       const latest = data.reduce((a: NewsItem, b: NewsItem) =>
-        new Date(a.create_date_time) > new Date(b.create_date_time) ? a : b
+        new Date(a.create_date_time) > new Date(b.create_date_time) ? a : b,
       )
       emit('lastDate', latest.create_date_time)
     }
-  } catch (_) {
-    errorMsg.value = '뉴스를 불러오는 데 실패했습니다.'
+  } catch {
+    errorMsg.value = '뉴스를 불러오는 중 오류가 발생했습니다.'
   } finally {
     isLoading.value = false
   }
@@ -53,10 +56,11 @@ watch(() => props.keyword, fetchNews)
 
 const fetchSummaryForItem = async (item: DisplayNewsItem) => {
   if (summaryMap.value[item.id] !== undefined) return
+
   try {
     const result = await fetchSummary(item.id)
     summaryMap.value = { ...summaryMap.value, [item.id]: result }
-  } catch (_) {
+  } catch {
     summaryMap.value = { ...summaryMap.value, [item.id]: null }
   }
 }
@@ -91,18 +95,29 @@ const generateSummary = async (item: DisplayNewsItem) => {
 const toggleRow = (item: DisplayNewsItem) => {
   if (expandedId.value === item.id) {
     expandedId.value = null
-  } else {
-    expandedId.value = item.id
-    fetchSummaryForItem(item)
+    return
   }
+
+  expandedId.value = item.id
+  fetchSummaryForItem(item)
 }
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) {
+    return dateStr
+  }
+
+  return date.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
 }
+
+const getSafeSummaryHtml = (value: string | null | undefined) => sanitizeSummaryHtml(value)
 
 onMounted(fetchNews)
 
@@ -115,7 +130,7 @@ defineExpose({ count: () => newsList.value.length })
       <svg class="spin" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
       </svg>
-      <span>불러오는 중...</span>
+      <span>뉴스를 불러오는 중입니다.</span>
     </div>
 
     <div v-else-if="errorMsg" class="state-wrap error">
@@ -158,17 +173,21 @@ defineExpose({ count: () => newsList.value.length })
                 </svg>
                 AI 요약
               </div>
+
               <template v-if="(summaryMap[item.id] !== null && summaryMap[item.id] !== undefined && summaryMap[item.id] !== '') || summaryLoadingSet.has(item.id)">
                 <p class="summary-text">
-                  <span v-html="summaryMap[item.id]"></span><span v-if="summaryLoadingSet.has(item.id)" class="streaming-cursor">▌</span>
+                  <span v-html="getSafeSummaryHtml(summaryMap[item.id])"></span>
+                  <span v-if="summaryLoadingSet.has(item.id)" class="streaming-cursor">|</span>
                 </p>
               </template>
+
               <div v-else-if="summaryLoadingSet.has(item.id)" class="summary-loading">
                 <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
-                요약 중...
+                요약을 생성하는 중입니다.
               </div>
+
               <template v-else>
                 <div class="summary-actions">
                   <button class="generate-btn" @click.stop="generateSummary(item)">
@@ -185,7 +204,15 @@ defineExpose({ count: () => newsList.value.length })
                   </a>
                 </div>
               </template>
-              <a v-if="summaryMap[item.id] && !summaryLoadingSet.has(item.id)" :href="item.url" target="_blank" rel="noopener noreferrer" class="news-link" @click.stop>
+
+              <a
+                v-if="summaryMap[item.id] && !summaryLoadingSet.has(item.id)"
+                :href="item.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="news-link"
+                @click.stop
+              >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
                 </svg>
@@ -214,11 +241,19 @@ defineExpose({ count: () => newsList.value.length })
   font-size: 0.9rem;
 }
 
-.state-wrap.error { color: #c0392b; }
+.state-wrap.error {
+  color: #c0392b;
+}
 
-.spin { animation: spin 1s linear infinite; }
+.spin {
+  animation: spin 1s linear infinite;
+}
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .news-item {
   border-bottom: 1px solid #e0d8cc;
@@ -289,7 +324,10 @@ defineExpose({ count: () => newsList.value.length })
   flex-shrink: 0;
 }
 
-.news-date { font-size: 0.75rem; color: #b0a494; }
+.news-date {
+  font-size: 0.75rem;
+  color: #b0a494;
+}
 
 .toggle-icon {
   color: #b0a494;
@@ -298,9 +336,14 @@ defineExpose({ count: () => newsList.value.length })
   transition: transform 0.25s ease;
 }
 
-.toggle-icon.open { transform: rotate(180deg); color: #2c3e35; }
+.toggle-icon.open {
+  transform: rotate(180deg);
+  color: #2c3e35;
+}
 
-.news-summary { overflow: hidden; }
+.news-summary {
+  overflow: hidden;
+}
 
 .summary-inner {
   padding: 0 0 1.4rem 2.2rem;
@@ -342,14 +385,38 @@ defineExpose({ count: () => newsList.value.length })
   box-sizing: border-box;
 }
 
-.summary-text :deep(*) { max-width: 100%; box-sizing: border-box; word-break: break-word; }
-.summary-text :deep(h1), .summary-text :deep(h2), .summary-text :deep(h3) {
-  font-size: 1rem; font-weight: 600; margin: 0.6rem 0 0.3rem; color: #2c3e35;
+.summary-text :deep(*) {
+  max-width: 100%;
+  box-sizing: border-box;
+  word-break: break-word;
 }
-.summary-text :deep(ul), .summary-text :deep(ol) { padding-left: 1.2rem; margin: 0.4rem 0; }
-.summary-text :deep(li) { margin-bottom: 0.3rem; }
-.summary-text :deep(p) { margin: 0.4rem 0; }
-.summary-text :deep(strong) { color: #2c3e35; }
+
+.summary-text :deep(h1),
+.summary-text :deep(h2),
+.summary-text :deep(h3) {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.6rem 0 0.3rem;
+  color: #2c3e35;
+}
+
+.summary-text :deep(ul),
+.summary-text :deep(ol) {
+  padding-left: 1.2rem;
+  margin: 0.4rem 0;
+}
+
+.summary-text :deep(li) {
+  margin-bottom: 0.3rem;
+}
+
+.summary-text :deep(p) {
+  margin: 0.4rem 0;
+}
+
+.summary-text :deep(strong) {
+  color: #2c3e35;
+}
 
 .news-link {
   display: inline-flex;
@@ -369,9 +436,16 @@ defineExpose({ count: () => newsList.value.length })
   vertical-align: middle;
 }
 
-.news-link:hover { background-color: #c8a96e; color: #2c3e35; }
+.news-link:hover {
+  background-color: #c8a96e;
+  color: #2c3e35;
+}
 
-.summary-actions { display: flex; align-items: stretch; gap: 0.6rem; }
+.summary-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+}
 
 .generate-btn {
   display: inline-flex;
@@ -391,7 +465,10 @@ defineExpose({ count: () => newsList.value.length })
   height: 2rem;
 }
 
-.generate-btn:hover { background-color: transparent; color: #2c3e35; }
+.generate-btn:hover {
+  background-color: transparent;
+  color: #2c3e35;
+}
 
 .streaming-cursor {
   display: inline;
@@ -400,15 +477,42 @@ defineExpose({ count: () => newsList.value.length })
   animation: blink 0.8s step-end infinite;
 }
 
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
 
-.expand-enter-active, .expand-leave-active {
+  50% {
+    opacity: 0;
+  }
+}
+
+.expand-enter-active,
+.expand-leave-active {
   transition: max-height 0.3s ease, opacity 0.25s ease;
   max-height: 400px;
 }
 
-.expand-enter-from, .expand-leave-to { max-height: 0; opacity: 0; }
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
 
-@media (max-width: 768px) { .news-list { padding: 0 1.2rem 2rem; } }
-@media (max-width: 480px) { .news-date { display: none; } .news-title { font-size: 0.92rem; } }
+@media (max-width: 768px) {
+  .news-list {
+    padding: 0 1.2rem 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .news-date {
+    display: none;
+  }
+
+  .news-title {
+    font-size: 0.92rem;
+  }
+}
 </style>
