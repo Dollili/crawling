@@ -24,3 +24,19 @@ select cron.schedule(
   )
   $$
 );
+
+-- 매월 1일 00:05 UTC (= 09:05 KST) crawl-rams Edge Function 호출
+select cron.schedule(
+  'crawl-rams-monthly',
+  '5 0 1 * *',
+  $$
+  select net.http_post(
+    url := current_setting('app.supabase_url') || '/functions/v1/crawl-rams',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
+    ),
+    body := '{}'::jsonb
+  )
+  $$
+);

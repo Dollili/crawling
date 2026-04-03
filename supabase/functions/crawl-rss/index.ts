@@ -3,6 +3,26 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 const RSS_URL =
   'https://news.google.com/rss/search?q=%EC%9D%80%ED%96%89+when:7d&hl=ko&gl=KR&ceid=KR:ko'
 
+/** CDATA 및 일반 태그 텍스트 추출 */
+function extractTag(xml: string, tag: string): string {
+  const re = new RegExp(
+    `<${tag}[^>]*>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))<\\/${tag}>`,
+    'i',
+  )
+  const match = xml.match(re)
+  return (match?.[1] ?? match?.[2] ?? '').trim()
+}
+
+/** <link> 태그는 self-closing 형태가 없고 텍스트 노드로만 존재,
+ *  but Google RSS는 <link>...</link> 구조이므로 extractTag로 처리 가능.
+ *  단, <atom:link .../> 같은 self-closing이 먼저 매칭되는 것을 방지하기 위해
+ *  tag를 'link'로 한정하지 않고 정확히 매칭 */
+function extractLink(itemXml: string): string {
+  // <link>TEXT</link> 형태만 추출 (atom:link 제외)
+  const match = itemXml.match(/<link>([^<]+)<\/link>/)
+  return (match?.[1] ?? '').trim()
+}
+
 Deno.serve(async () => {
   try {
     const supabase = createClient(
@@ -21,19 +41,18 @@ Deno.serve(async () => {
     })
     const xmlText = await res.text()
 
-    const parser = new DOMParser()
-    const xmlDoc = parser.parseFromString(xmlText, 'text/xml')
-    const items = xmlDoc.querySelectorAll('item')
-
-    const limit = Math.min(items.length, 30)
+    // <item>...</item> 블록 분리
+    const itemBlocks = xmlText.match(/<item>([\s\S]*?)<\/item>/g) ?? []
+    const limit = Math.min(itemBlocks.length, 30)
     let insertCount = 0
 
     for (let i = 0; i < limit; i++) {
-      const item = items[i]
-      const title = item.querySelector('title')?.textContent?.trim() ?? ''
-      const url = item.querySelector('link')?.textContent?.trim() ?? ''
-      const pubDate = item.querySelector('pubDate')?.textContent?.trim() ?? ''
-      const media = item.querySelector('source')?.textContent?.trim() ?? ''
+      const block = itemBlocks[i]
+
+      const title   = extractTag(block, 'title')
+      const url     = extractLink(block)
+      const pubDate = extractTag(block, 'pubDate')
+      const media   = extractTag(block, 'source')
 
       if (!url) continue
 
@@ -51,7 +70,7 @@ Deno.serve(async () => {
       const now = new Date()
       const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
       const createDatetime = new Date(
-        Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0)
+        Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0),
       ).toISOString()
 
       const { error } = await supabase.from('news').insert({
