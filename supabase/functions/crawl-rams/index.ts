@@ -5,7 +5,7 @@ import {
   getCurrentKstMonthWindow,
   RAM_TARGETS,
   type RamTarget,
-} from '../_shared/rams.ts'
+} from './rams.ts'
 
 async function alreadyCollectedThisMonth(
   supabase: ReturnType<typeof createClient>,

@@ -3,7 +3,7 @@ import { assertEquals } from 'jsr:@std/assert'
 import {
   extractLowestPriceFromHtml,
   getCurrentKstMonthWindow,
-} from '../_shared/rams.ts'
+} from './rams.ts'
 
 Deno.test('extractLowestPriceFromHtml returns the lowest product price and ignores shipping', () => {
   const html = `
